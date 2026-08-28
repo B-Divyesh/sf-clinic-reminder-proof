@@ -1,3 +1,5 @@
+pub mod auth;
+pub mod clinic;
 pub mod demo;
 
 use std::{
@@ -27,6 +29,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 
+use crate::clinic::ClinicState;
 use crate::demo::{
     advance, advance_due, assign_exception, create_workspace, reset_workspace, resolve_exception,
     state as demo_state, undo_exception, DemoStore, Problem,
@@ -66,6 +69,15 @@ impl KeyExtractor for TrustedProxyIpExtractor {
 }
 
 pub fn app(build_sha: &'static str, dist_dir: impl Into<PathBuf>) -> Router {
+    let clinic_state = ClinicState::from_env().expect("initialize durable clinic store");
+    app_with_clinic_state(build_sha, dist_dir, clinic_state)
+}
+
+fn app_with_clinic_state(
+    build_sha: &'static str,
+    dist_dir: impl Into<PathBuf>,
+    clinic_state: ClinicState,
+) -> Router {
     let state = Arc::new(AppState { build_sha });
     let demo_store = DemoStore::new();
     let api_governor = Arc::new(
@@ -92,6 +104,45 @@ pub fn app(build_sha: &'static str, dist_dir: impl Into<PathBuf>) -> Router {
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(GovernorLayer::new(api_governor.clone()).error_handler(governor_error))
         .layer(middleware::from_fn(normalize_api_errors));
+    let clinic_api = Router::new()
+        .route("/v1/auth/config", get(clinic::auth_config))
+        .route(
+            "/v1/clinic",
+            get(clinic::get_workspace)
+                .post(clinic::onboard)
+                .delete(clinic::delete_workspace),
+        )
+        .route("/v1/clinic/export", get(clinic::export_workspace))
+        .route("/v1/clinic/connectors", post(clinic::configure_connector))
+        .route("/v1/clinic/providers", post(clinic::configure_provider))
+        .route("/v1/clinic/reminders/dispatch", post(clinic::dispatch))
+        .route(
+            "/v1/clinic/exceptions/{id}/assign",
+            post(clinic::assign_exception),
+        )
+        .route(
+            "/v1/clinic/exceptions/{id}/resolve",
+            post(clinic::resolve_exception),
+        )
+        .route("/v1/connectors/intake", post(clinic::connector_intake))
+        .route(
+            "/v1/providers/{id}/receipts",
+            post(clinic::provider_receipt),
+        )
+        .route(
+            "/v1/providers/twilio/{id}/receipts",
+            post(clinic::twilio_receipt),
+        )
+        .route(
+            "/v1/providers/resend/{id}/receipts",
+            post(clinic::resend_receipt),
+        )
+        .route("/v1/billing/checkout", post(clinic::billing_checkout))
+        .route("/v1/billing/return", post(clinic::billing_return))
+        .with_state(clinic_state)
+        .layer(DefaultBodyLimit::max(5 * 1024 * 1024))
+        .layer(GovernorLayer::new(api_governor.clone()).error_handler(governor_error))
+        .layer(middleware::from_fn(normalize_api_errors));
     let operations = Router::new()
         .route("/metrics", get(metrics))
         .layer(GovernorLayer::new(api_governor).error_handler(governor_error));
@@ -104,12 +155,15 @@ pub fn app(build_sha: &'static str, dist_dir: impl Into<PathBuf>) -> Router {
         .route("/health", get(health))
         .merge(operations)
         .nest("/api", api)
+        .nest("/api", clinic_api)
         .route_service("/", spa.clone())
         .route_service("/demo", spa.clone())
         .route_service("/demo/reminders/{*path}", spa.clone())
         .route_service("/privacy", spa.clone())
         .route_service("/terms", spa.clone())
         .route_service("/start", spa.clone())
+        .route_service("/app", spa.clone())
+        .route_service("/auth/callback", spa.clone())
         .route_service("/404", spa.clone())
         .fallback_service(static_files)
         .with_state(state)
@@ -234,7 +288,7 @@ async fn security_headers(request: Request, next: Next) -> Response {
     );
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static("default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'"),
+        HeaderValue::from_static("default-src 'self'; base-uri 'self'; connect-src 'self' https://sociobotcustomers.ciamlogin.com https://api.sociobot.in; font-src 'self'; frame-ancestors 'none'; frame-src https://sociobotcustomers.ciamlogin.com; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'"),
     );
     headers.insert(
         "permissions-policy",
@@ -255,8 +309,13 @@ async fn security_headers(request: Request, next: Next) -> Response {
 mod tests {
     use super::*;
     use axum::{body::Body, http::Request};
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use hmac::{Hmac, Mac};
     use http_body_util::BodyExt;
+    use sha2::Sha256;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use tower::ServiceExt;
+    use uuid::Uuid;
 
     fn test_app() -> Router {
         app("test-sha", "../../dist")
@@ -479,5 +538,209 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         let body = response.into_body().collect().await.unwrap().to_bytes();
         assert!(std::str::from_utf8(&body).unwrap().contains("json_invalid"));
+    }
+
+    #[tokio::test]
+    async fn managed_claim_clinic_flow_is_authenticated_signed_durable_and_consent_aware() {
+        let path = std::env::temp_dir().join(format!("reminder-proof-api-{}", Uuid::new_v4()));
+        let clinic_state = ClinicState::for_tests(path.clone()).unwrap();
+        let application = app_with_clinic_state("managed-test", "../../dist", clinic_state);
+
+        let unauthorized = application
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/clinic")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            unauthorized
+                .headers()
+                .get(header::WWW_AUTHENTICATE)
+                .unwrap(),
+            "Bearer"
+        );
+
+        let created = application.clone().oneshot(Request::builder().method("POST").uri("/api/v1/clinic").header(header::AUTHORIZATION, "Bearer test:clinic-owner-a").header(header::CONTENT_TYPE, "application/json").body(Body::from(r#"{"clinic_name":"Oak Street Dental","location_name":"High Street","timezone":"Europe/London"}"#)).unwrap()).await.unwrap();
+        assert_eq!(created.status(), StatusCode::CREATED);
+
+        let secret = "calendar-signing-secret-123";
+        let connector = application
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/clinic/connectors")
+                    .header(header::AUTHORIZATION, "Bearer test:clinic-owner-a")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"kind":"signed-calendar-webhook","webhook_secret":"{secret}"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(connector.status(), StatusCode::CREATED);
+        let connector_body = connector.into_body().collect().await.unwrap().to_bytes();
+        let connector_json: serde_json::Value = serde_json::from_slice(&connector_body).unwrap();
+        let connector_id = connector_json["connector"]["id"].as_str().unwrap();
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let canonical = format!("{timestamp}:{connector_id}:2");
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(canonical.as_bytes());
+        let signature = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+        let intake_body = serde_json::json!({
+            "connector_id": connector_id,
+            "appointments": [
+                {
+                    "source_id": "emr-appointment-42",
+                    "patient_alias": "Patient A",
+                    "first_name": "A",
+                    "appointment_time": "2026-09-01T09:00:00+01:00",
+                    "channels": [
+                        {"channel":"sms","destination":"+447700900001","consent":"blocked","consent_source":"EMR opt-out","consent_captured_at":"2026-08-27T12:00:00Z"},
+                        {"channel":"email","destination":"patient@example.test","consent":"unknown","consent_source":"no record","consent_captured_at":"2026-08-27T12:00:00Z"}
+                    ]
+                },
+                {
+                    "source_id": "emr-appointment-43",
+                    "patient_alias": "Patient B",
+                    "first_name": "B",
+                    "appointment_time": "2026-09-01T10:00:00+01:00",
+                    "channels": [
+                        {"channel":"sms","destination":"+447700900002","consent":"allowed","consent_source":"EMR opt-in","consent_captured_at":"2026-08-27T12:00:00Z"}
+                    ]
+                }
+            ]
+        });
+        let intake = application
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/connectors/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-reminder-timestamp", timestamp.to_string())
+                    .header("x-reminder-signature", signature)
+                    .body(Body::from(intake_body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(intake.status(), StatusCode::OK);
+        let intake_json: serde_json::Value =
+            serde_json::from_slice(&intake.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        let reminder_id = intake_json["reminders"][0]["id"].as_str().unwrap();
+
+        let dispatch = application
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/clinic/reminders/dispatch")
+                    .header(header::AUTHORIZATION, "Bearer test:clinic-owner-a")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("idempotency-key", "dispatch-once-42")
+                    .body(Body::from(format!(r#"{{"reminder_id":"{reminder_id}"}}"#)))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(dispatch.status(), StatusCode::OK);
+        let dispatch_text = String::from_utf8(
+            dispatch
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(dispatch_text.contains("No allowed channel has recorded consent"));
+        assert!(!dispatch_text.contains(secret));
+
+        let paid_reminder_id = intake_json["reminders"][1]["id"].as_str().unwrap();
+        let unpaid_dispatch = application
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/clinic/reminders/dispatch")
+                    .header(header::AUTHORIZATION, "Bearer test:clinic-owner-a")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("idempotency-key", "dispatch-paid-43")
+                    .body(Body::from(format!(
+                        r#"{{"reminder_id":"{paid_reminder_id}"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unpaid_dispatch.status(), StatusCode::PAYMENT_REQUIRED);
+        let unpaid_text = String::from_utf8(
+            unpaid_dispatch
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(unpaid_text.contains("subscription_required"));
+        assert!(!unpaid_text.contains(secret));
+
+        let other_tenant = application
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/clinic")
+                    .header(header::AUTHORIZATION, "Bearer test:clinic-owner-b")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(other_tenant.status(), StatusCode::NOT_FOUND);
+        drop(application);
+
+        let restarted = app_with_clinic_state(
+            "managed-test",
+            "../../dist",
+            ClinicState::for_tests(path.clone()).unwrap(),
+        );
+        let durable = restarted
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/clinic")
+                    .header(header::AUTHORIZATION, "Bearer test:clinic-owner-a")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(durable.status(), StatusCode::OK);
+        let durable_text = String::from_utf8(
+            durable
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(durable_text.contains("emr-appointment-42"));
+        assert!(durable_text.contains("exception"));
+        let _ = std::fs::remove_dir_all(path);
     }
 }

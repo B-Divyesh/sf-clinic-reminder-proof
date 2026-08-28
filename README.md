@@ -8,16 +8,19 @@ Open `/?demo=1` or `/demo`. The server creates a random, 24-hour sample workspac
 
 You can advance sample reminders, inspect provider evidence, see a consent block, follow a simulated WhatsApp-to-email fallback, assign and resolve the sample exception, undo the safe resolution, and reset the whole sample clinic.
 
-“Start for real” opens a local CSV evidence tool. It imports calendar/provider exports, applies consent precedence, records fallback outcomes, creates owner fields for exceptions, survives reload, and exports a proof CSV. Imported rows stay in that browser and can be deleted there. It does not dispatch patient messages or replace the provider’s signed webhook record.
+“Start for real” opens the managed clinic workflow. A clinic signs in through Sociobot Microsoft Entra, creates its workspace, connects a signed calendar feed, and configures approved delivery providers. Reminder Proof checks recorded consent in policy order, sends only an approved template, ingests signed provider receipts, and opens a shared staff exception when proof is missing.
 
-## What is in M1
+## What is included
 
 - Public landing, demo ledger, reminder evidence, Privacy, Terms, and styled 404 routes.
-- A Rust/axum same-origin API with isolated HttpOnly Secure demo cookies, 24-hour expiry, JSON and 16 KB body guards, security headers, `/health`, and `/metrics`.
+- A Rust/axum same-origin API with isolated demo cookies, Entra JWT validation, encrypted durable clinic data, rate limits, security headers, `/health`, and `/metrics`.
+- A signed calendar/EMR webhook connector with idempotent appointment upserts.
+- Twilio SMS and approved WhatsApp dispatch, Resend email fallback, and signed receipt reconciliation.
+- Shared exception assignment and resolution, clinic export/delete, and Sociobot-hosted subscription checkout at $79 per location each month, plus published messaging charges.
 - Original hand-authored pulse-ledger art, favicon, touch icon, social card, and self-hosted Instrument Sans / Fragment Mono assets.
 - Playwright claim tests that begin with a fresh demo browser context. See [`.factory/claims.json`](.factory/claims.json).
 
-CIAM sign-in, managed clinic storage, live provider dispatch, and Sociobot/Dodo subscriptions still require operator credentials and regulated-data readiness. They are not represented as available.
+The public demo is always simulated. Live dispatch begins only after a signed-in clinic supplies approved sender credentials, template IDs, consent evidence, and a webhook signing secret.
 
 ## Run locally
 
@@ -30,7 +33,20 @@ npm run build:web
 npm run dev:api             # Same-origin app server on http://127.0.0.1:8080
 ```
 
-The API requires no configuration and uses `PORT` (default `8080`). Demo state is compact, fictional, and carried only by its scoped cookie; no process-local workspace must survive a restart.
+The API requires no configuration and uses `PORT` (default `8080`). Clinic data and the generated AES-256 data key persist below `DATA_DIR` (the image defaults to `/data`). Entra tenant settings may override the documented Sociobot defaults. Provider credentials are entered by a signed-in clinic and encrypted at rest.
+
+Production operators must mount durable storage at `/data`. Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Sociobot Entra SPA before sign-in is opened to clinics.
+
+## Clinic integration contract
+
+All clinic routes require an Entra bearer token. The stable `oid` claim owns the workspace; email is never an identity key.
+
+- Create a signed calendar connector in `/app`. Post normalized appointment batches to `/api/v1/connectors/intake` with `X-Reminder-Timestamp` and `X-Reminder-Signature`.
+- Sign the UTF-8 string `<timestamp>:<connector-id>:<appointment-count>` with HMAC-SHA256. Encode the result as URL-safe base64 without padding.
+- Configure Twilio for SMS or approved WhatsApp templates, or Resend for email. Credentials and patient destinations are encrypted at rest.
+- Twilio receives its status callback URL during dispatch and is verified with `X-Twilio-Signature`. Resend receipt callbacks use its Svix headers (`svix-id`, `svix-timestamp`, and `svix-signature`) and the stored `whsec_…` webhook secret.
+- Receipt event IDs are idempotent. A terminal failure tries the next recorded-consent channel; exhaustion opens a shared exception.
+- The signed-in workspace requests checkout through the same-origin billing route, which returns only the Sociobot checkout URL. No payment provider is embedded.
 
 ## Verify
 
@@ -60,7 +76,7 @@ The factory deploys the container to `https://clinic-reminder-proof.sociobot.in`
 
 ## Privacy and terms
 
-The public pages are available at `/privacy` and `/terms`. The demo uses fictional aliases and contains no clinical notes, diagnosis, date of birth, address, insurance details, real phone number, or real email address.
+The public pages are available at `/privacy` and `/terms`. The demo uses fictional aliases. Managed records contain only reminder operations data; clinics must not send clinical notes, diagnoses, or treatment details.
 
 ## License
 

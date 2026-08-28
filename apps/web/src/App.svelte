@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import type { AccountInfo, PublicClientApplication } from '@azure/msal-browser';
   import PulseLedger from './lib/art/PulseLedger.svelte';
 
   type Evidence = {
@@ -36,18 +37,18 @@
     staff: { id: string; name: string }[];
     reminders: Reminder[];
   };
-  type RealReminder = {
+  type ClinicException = { id: string; reason: string; owner: string | null; state: string; resolution: string | null };
+  type ClinicReminder = {
     id: string;
+    source_id: string;
     patient_alias: string;
     appointment_time: string;
-    primary_channel: string;
-    consent: string;
-    primary_result: string;
-    fallback_channel: string;
-    fallback_consent: string;
-    fallback_result: string;
-    owner: string;
+    status: string;
+    channels: { channel: string; consent: string; consent_source: string; consent_captured_at: string }[];
+    timeline: { at: number; kind: string; channel: string | null; outcome: string; provider_reference: string | null }[];
+    exception: ClinicException | null;
   };
+  type ClinicWorkspace = { organization_id: string; clinic_name: string; location_name: string; timezone: string; connector: { id: string; kind: string; last_received_at: number | null } | null; providers: { id: string; channel: string; kind: string; from: string; approved_template_id: string }[]; reminders: ClinicReminder[]; subscription: { tier: string | null; status: string | null } };
 
   let pagePath = typeof window === 'undefined' ? '/' : window.location.pathname;
   let demo: DemoData | null = null;
@@ -57,9 +58,12 @@
   let error = '';
   let notice = '';
   let announced = '';
-  let realReminders: RealReminder[] = [];
-  let importError = '';
-  const realStorageKey = 'real:clinic-reminder-proof:ledger';
+  let clinic: ClinicWorkspace | null = null;
+  let account: AccountInfo | null = null;
+  let authClient: PublicClientApplication | null = null;
+  let authReady = false;
+  let connectorSecret = '';
+  let pendingLicense = '';
 
   const description =
     'Track appointment reminder attempts, delivery evidence, safe fallbacks, and staff-owned exceptions without replacing your clinic calendar.';
@@ -71,7 +75,8 @@
     if (path.startsWith('/demo/reminders/')) return { title: 'Reminder evidence — Reminder Proof', heading: 'Reminder evidence' };
     if (path === '/privacy') return { title: 'Privacy — Reminder Proof', heading: 'How Reminder Proof handles data' };
     if (path === '/terms') return { title: 'Terms — Reminder Proof', heading: 'Terms for Reminder Proof' };
-    if (path === '/start') return { title: 'Import reminder evidence — Reminder Proof', heading: 'Audit real reminder results' };
+    if (path === '/start') return { title: 'Start a clinic — Reminder Proof', heading: 'Connect your clinic reminders' };
+    if (path === '/app' || path === '/auth/callback') return { title: 'Clinic ledger — Reminder Proof', heading: 'Clinic reminder ledger' };
     return { title: 'Page not found — Reminder Proof', heading: 'This page has no ledger entry' };
   }
 
@@ -84,20 +89,27 @@
     : null;
 
   onMount(() => {
-    try {
-      realReminders = JSON.parse(localStorage.getItem(realStorageKey) ?? '[]') as RealReminder[];
-    } catch {
-      localStorage.removeItem(realStorageKey);
+    const currentUrl = new URL(window.location.href);
+    const returnedLicense = currentUrl.searchParams.get('license');
+    if (returnedLicense) {
+      sessionStorage.setItem('billing:return:clinic-reminder-proof', returnedLicense);
+      currentUrl.searchParams.delete('license');
+      window.history.replaceState({}, '', `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
+      pendingLicense = returnedLicense;
+    } else {
+      pendingLicense = sessionStorage.getItem('billing:return:clinic-reminder-proof') ?? '';
     }
     if (window.location.pathname === '/' && new URLSearchParams(window.location.search).get('demo') === '1') {
       navigate('/demo', true);
     } else if (isDemoPath()) {
       void loadDemo();
     }
+    if (['/start', '/app', '/auth/callback'].includes(window.location.pathname)) void initializeAuth();
     const pop = () => {
       pagePath = window.location.pathname;
       error = '';
       if (isDemoPath()) void loadDemo();
+      if (['/start', '/app', '/auth/callback'].includes(pagePath)) void initializeAuth();
       focusRoute();
     };
     const online = () => (offline = false);
@@ -158,6 +170,7 @@
       failure.status = response.status;
       throw failure;
     }
+    if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
 
@@ -244,106 +257,126 @@
     return '•';
   }
 
-  function parseCsv(text: string): string[][] {
-    const rows: string[][] = [];
-    let row: string[] = [];
-    let field = '';
-    let quoted = false;
-    for (let index = 0; index < text.length; index += 1) {
-      const character = text[index];
-      if (character === '"' && quoted && text[index + 1] === '"') {
-        field += '"';
-        index += 1;
-      } else if (character === '"') quoted = !quoted;
-      else if (character === ',' && !quoted) {
-        row.push(field.trim());
-        field = '';
-      } else if ((character === '\n' || character === '\r') && !quoted) {
-        if (character === '\r' && text[index + 1] === '\n') index += 1;
-        row.push(field.trim());
-        if (row.some(Boolean)) rows.push(row);
-        row = [];
-        field = '';
-      } else field += character;
+  async function initializeAuth() {
+    if (authClient) return;
+    try {
+      const config = await request<{ client_id: string; authority: string }>('/api/v1/auth/config');
+      const { PublicClientApplication } = await import('@azure/msal-browser');
+      authClient = new PublicClientApplication({ auth: { clientId: config.client_id, authority: config.authority, redirectUri: `${origin}/auth/callback`, postLogoutRedirectUri: `${origin}/start` }, cache: { cacheLocation: 'sessionStorage' } });
+      await authClient.initialize();
+      const result = await authClient.handleRedirectPromise();
+      account = result?.account ?? authClient.getAllAccounts()[0] ?? null;
+      authReady = true;
+      if (pagePath === '/auth/callback') navigate('/app', true);
+      if (account) {
+        await loadClinic();
+        await redeemBillingReturn();
+      }
+    } catch (cause) {
+      error = (cause as Error).message || 'Sign-in could not start. Try again.';
+      authReady = true;
     }
-    row.push(field.trim());
-    if (row.some(Boolean)) rows.push(row);
-    return rows;
   }
 
-  async function importEvidence(event: Event) {
-    importError = '';
-    const input = event.currentTarget as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
-    if (file.size > 1_000_000) {
-      importError = 'That file is over 1 MB. Export a smaller date range and try again.';
-      input.value = '';
-      return;
+  async function signIn() {
+    if (!authClient) await initializeAuth();
+    await authClient?.loginRedirect({ scopes: ['openid', 'profile', 'email'], prompt: 'select_account' });
+  }
+
+  async function signOut() {
+    await authClient?.logoutRedirect({ account: account ?? undefined });
+  }
+
+  async function clinicRequest<T>(url: string, init?: RequestInit): Promise<T> {
+    if (!authClient || !account) throw new Error('Sign in before opening clinic data.');
+    const token = await authClient.acquireTokenSilent({ account, scopes: ['openid', 'profile', 'email'] });
+    return request<T>(url, { ...init, headers: { authorization: `Bearer ${token.idToken}`, ...(init?.body ? { 'content-type': 'application/json' } : {}), ...init?.headers } });
+  }
+
+  async function redeemBillingReturn() {
+    if (!pendingLicense || !clinic) return;
+    try {
+      clinic = await clinicRequest<ClinicWorkspace>('/api/v1/billing/return', {
+        method: 'POST',
+        body: JSON.stringify({ license: pendingLicense })
+      });
+      pendingLicense = '';
+      sessionStorage.removeItem('billing:return:clinic-reminder-proof');
+      notice = 'Your Sociobot Clinic plan is active.';
+    } catch (cause) {
+      error = (cause as Error).message;
     }
-    const rows = parseCsv(await file.text());
-    const headers = rows.shift()?.map((header) => header.toLowerCase()) ?? [];
-    const required = ['reminder_id', 'patient_alias', 'appointment_time', 'primary_channel', 'consent', 'primary_result'];
-    const missing = required.filter((header) => !headers.includes(header));
-    if (missing.length > 0) {
-      importError = `The CSV is missing: ${missing.join(', ')}.`;
-      input.value = '';
-      return;
+  }
+
+  async function loadClinic() {
+    loading = true;
+    error = '';
+    try { clinic = await clinicRequest<ClinicWorkspace>('/api/v1/clinic'); }
+    catch (cause) { const failure = cause as Error & { status?: number }; if (failure.status !== 404) error = failure.message; }
+    finally { loading = false; }
+  }
+
+  async function saveClinic(event: SubmitEvent) {
+    event.preventDefault(); busy = true; error = '';
+    const fields = new FormData(event.currentTarget as HTMLFormElement);
+    try { clinic = await clinicRequest<ClinicWorkspace>('/api/v1/clinic', { method: 'POST', body: JSON.stringify({ clinic_name: fields.get('clinic_name'), location_name: fields.get('location_name'), timezone: fields.get('timezone') }) }); notice = 'Clinic workspace saved in managed storage.'; }
+    catch (cause) { error = (cause as Error).message; } finally { busy = false; }
+  }
+
+  async function saveConnector(event: SubmitEvent) {
+    event.preventDefault(); busy = true; error = '';
+    const fields = new FormData(event.currentTarget as HTMLFormElement);
+    try { const created = await clinicRequest<{ signing_secret: string }>('/api/v1/clinic/connectors', { method: 'POST', body: JSON.stringify({ kind: 'signed-calendar-webhook', webhook_secret: fields.get('webhook_secret') }) }); connectorSecret = created.signing_secret; await loadClinic(); notice = 'Signed calendar connector is ready.'; }
+    catch (cause) { error = (cause as Error).message; } finally { busy = false; }
+  }
+
+  async function saveProvider(event: SubmitEvent) {
+    event.preventDefault(); busy = true; error = '';
+    const fields = new FormData(event.currentTarget as HTMLFormElement);
+    const channel = String(fields.get('channel'));
+    try { clinic = await clinicRequest<ClinicWorkspace>('/api/v1/clinic/providers', { method: 'POST', body: JSON.stringify({ channel, kind: channel === 'email' ? 'resend' : 'twilio', account_id: fields.get('account_id'), secret: fields.get('secret'), from: fields.get('from'), approved_template_id: fields.get('approved_template_id'), webhook_secret: fields.get('webhook_secret') }) }); notice = `${channel} provider saved. Credentials are encrypted.`; (event.currentTarget as HTMLFormElement).reset(); }
+    catch (cause) { error = (cause as Error).message; } finally { busy = false; }
+  }
+
+  async function dispatchReminder(id: string) {
+    busy = true; error = '';
+    try { clinic = await clinicRequest<ClinicWorkspace>('/api/v1/clinic/reminders/dispatch', { method: 'POST', headers: { 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify({ reminder_id: id }) }); notice = 'Dispatch evaluated consent and recorded the provider result.'; }
+    catch (cause) { error = (cause as Error).message; } finally { busy = false; }
+  }
+
+  async function startCheckout() {
+    busy = true;
+    error = '';
+    try {
+      const checkout = await clinicRequest<{ checkout_url: string }>('/api/v1/billing/checkout', {
+        method: 'POST',
+        body: JSON.stringify({ tier: 'clinic' })
+      });
+      window.location.assign(checkout.checkout_url);
+    } catch (cause) {
+      error = (cause as Error).message;
+      busy = false;
     }
-    const value = (row: string[], name: string) => row[headers.indexOf(name)]?.trim() ?? '';
-    const imported = rows.map((row) => ({
-      id: value(row, 'reminder_id'),
-      patient_alias: value(row, 'patient_alias'),
-      appointment_time: value(row, 'appointment_time'),
-      primary_channel: value(row, 'primary_channel'),
-      consent: value(row, 'consent').toLowerCase(),
-      primary_result: value(row, 'primary_result').toLowerCase(),
-      fallback_channel: value(row, 'fallback_channel'),
-      fallback_consent: value(row, 'fallback_consent').toLowerCase(),
-      fallback_result: value(row, 'fallback_result').toLowerCase(),
-      owner: ''
-    })).filter((item) => item.id && item.patient_alias && item.appointment_time);
-    if (imported.length === 0) {
-      importError = 'No complete reminder rows were found. Check the template and try again.';
-      input.value = '';
-      return;
-    }
-    realReminders = imported;
-    localStorage.setItem(realStorageKey, JSON.stringify(realReminders));
-    notice = `${imported.length} reminder results imported.`;
-    input.value = '';
   }
 
-  function realOutcome(item: RealReminder) {
-    if (item.consent !== 'allowed') return 'Blocked before dispatch';
-    if (['delivered', 'replied'].includes(item.primary_result)) return 'Delivered';
-    if (item.fallback_channel && item.fallback_consent === 'allowed' && ['delivered', 'replied'].includes(item.fallback_result)) return 'Delivered by fallback';
-    if (['queued', 'accepted', 'pending'].includes(item.primary_result)) return 'Awaiting delivery proof';
-    return 'Needs staff action';
+  async function saveException(id: string, action: 'assign' | 'resolve', value: string) {
+    busy = true; error = '';
+    try { clinic = await clinicRequest<ClinicWorkspace>(`/api/v1/clinic/exceptions/${id}/${action}`, { method: 'POST', body: JSON.stringify(action === 'assign' ? { owner: value } : { resolution: value }) }); notice = action === 'assign' ? 'Exception owner saved.' : 'Exception resolved.'; }
+    catch (cause) { error = (cause as Error).message; } finally { busy = false; }
   }
 
-  function setRealOwner(index: number, owner: string) {
-    realReminders[index].owner = owner.trim();
-    realReminders = [...realReminders];
-    localStorage.setItem(realStorageKey, JSON.stringify(realReminders));
+  async function exportClinic() {
+    if (!authClient || !account) return;
+    const token = await authClient.acquireTokenSilent({ account, scopes: ['openid', 'profile', 'email'] });
+    const response = await fetch('/api/v1/clinic/export', { headers: { authorization: `Bearer ${token.idToken}` } });
+    if (!response.ok) { error = 'Clinic data could not be exported. Sign in again and retry.'; return; }
+    const link = document.createElement('a'); link.href = URL.createObjectURL(await response.blob()); link.download = 'reminder-proof-export.json'; link.click(); URL.revokeObjectURL(link.href);
   }
 
-  function exportRealLedger() {
-    const escaped = (value: string) => `"${value.replaceAll('"', '""')}"`;
-    const header = 'reminder_id,patient_alias,appointment_time,outcome,owner';
-    const rows = realReminders.map((item) => [item.id, item.patient_alias, item.appointment_time, realOutcome(item), item.owner].map(escaped).join(','));
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([[header, ...rows].join('\n')], { type: 'text/csv' }));
-    link.download = 'reminder-proof-ledger.csv';
-    link.click();
-    URL.revokeObjectURL(link.href);
-  }
-
-  function clearRealLedger() {
-    if (!window.confirm('Delete the imported ledger from this browser?')) return;
-    realReminders = [];
-    localStorage.removeItem(realStorageKey);
-    notice = 'Imported reminder data was deleted from this browser.';
+  async function deleteClinic() {
+    if (!clinic || !window.confirm(`Delete ${clinic.clinic_name} and its reminder evidence? This cannot be undone.`)) return;
+    try { await clinicRequest<void>('/api/v1/clinic', { method: 'DELETE', headers: { 'x-confirm-delete': clinic.organization_id } }); clinic = null; notice = 'Clinic workspace deleted.'; }
+    catch (cause) { error = (cause as Error).message; }
   }
 </script>
 
@@ -372,6 +405,7 @@
   </a>
   <nav aria-label="Primary navigation">
     <a href="/demo" onclick={(event) => follow(event, '/demo')}>Demo</a>
+    <a href="/start" onclick={(event) => follow(event, '/start')}>For clinics</a>
     <a href="/#how">How it works</a>
     <a href="/privacy" onclick={(event) => follow(event, '/privacy')}>Privacy</a>
   </nav>
@@ -421,13 +455,13 @@
 
     <section class="boundary-section" aria-labelledby="boundary-title">
       <div><p class="eyebrow">Plain boundaries</p><h2 id="boundary-title">This does not replace your calendar or EMR.</h2></div>
-      <p>Reminder Proof stores no clinical notes and sends no marketing campaigns. The M1 demo simulates provider outcomes; it sends no real messages.</p>
+      <p>Reminder Proof stores no clinical notes and sends no marketing campaigns. The public demo stays separate from managed clinic data.</p>
     </section>
 
     <section class="pricing-section" aria-labelledby="pricing-title">
       <div><p class="eyebrow">Monthly plan</p><h2 id="pricing-title">One clear clinic price.</h2></div>
       <div class="price-line"><strong>$79</strong><span>per location each month<br />plus published messaging charges</span></div>
-      <p>Billing is not available in this milestone. Subscriptions arrive after accounts and clinic data are in place.</p>
+      <p><a class="button secondary" href="/start" onclick={(event) => follow(event, '/start')}>Connect your clinic</a></p>
     </section>
   {:else if pagePath === '/demo'}
     <section class="app-page" aria-labelledby="page-title">
@@ -503,41 +537,56 @@
     </section>
   {:else if pagePath === '/start'}
     <section class="app-page real-page" aria-labelledby="page-title">
-      <div class="page-heading"><div><p class="eyebrow">Real data · local browser</p><h1 id="page-title" tabindex="-1">Audit real reminder results</h1><p>Import a CSV export from your calendar or messaging provider. Reminder Proof classifies proof and exceptions without sending a message.</p></div></div>
-      <div class="state-notice warning"><strong>Before you import:</strong> use patient aliases, not names. Data stays in this browser. This tool is not a medical record.</div>
-      <section class="import-panel" aria-labelledby="import-title">
-        <div><h2 id="import-title">Import reminder evidence</h2><p>Required columns: reminder_id, patient_alias, appointment_time, primary_channel, consent, primary_result. Optional fallback columns record the next allowed attempt.</p></div>
-        <label class="file-button">Choose CSV file<input type="file" accept=".csv,text/csv" onchange={importEvidence} /></label>
-      </section>
-      {#if importError}<div class="state-notice danger" role="alert">{importError}</div>{/if}
+      <div class="page-heading"><div><p class="eyebrow">Managed clinic workflow</p><h1 id="page-title" tabindex="-1">Connect your clinic reminders</h1><p>Sign in, connect your calendar, and send approved reminders with delivery proof and staff-owned exceptions.</p></div></div>
+      <div class="workflow-grid" aria-label="Clinic workflow">
+        <div><span>01</span><h2>Sign in safely</h2><p>Sociobot Microsoft Entra protects each clinic workspace.</p></div>
+        <div><span>02</span><h2>Connect approved services</h2><p>A signed calendar feed and encrypted provider credentials keep systems separate.</p></div>
+        <div><span>03</span><h2>Follow every outcome</h2><p>Consent, fallback attempts, signed receipts, and staff action stay in one timeline.</p></div>
+      </div>
+      <div class="state-notice warning"><strong>Use minimum data:</strong> send patient aliases, contact destinations, consent evidence, and appointment times. Do not send clinical notes.</div>
+      {#if error}<div class="state-notice danger" role="alert">{error}</div>{/if}
+      <div class="start-actions">
+        <button class="button primary" onclick={signIn} disabled={!authReady || busy}>{authReady ? 'Sign in with Microsoft' : 'Preparing secure sign-in…'}</button>
+        <a class="button secondary" href="/demo" onclick={(event) => follow(event, '/demo')}>Try sample data first</a>
+        <span>Subscription checkout opens after you sign in and create a clinic workspace.</span>
+        <span>$79 per location each month, plus published messaging charges.</span>
+      </div>
+    </section>
+  {:else if pagePath === '/app' || pagePath === '/auth/callback'}
+    <section class="app-page real-page" aria-labelledby="page-title">
+      <div class="page-heading"><div><p class="eyebrow">Managed clinic workspace</p><h1 id="page-title" tabindex="-1">Clinic reminder ledger</h1><p>Calendar intake, approved dispatch, receipts, and exceptions are stored for your signed-in clinic.</p></div>{#if account}<button class="text-button" onclick={signOut}>Sign out</button>{/if}</div>
+      {#if error}<div class="state-notice danger" role="alert">{error}</div>{/if}
       {#if notice}<div class="state-notice success" role="status">{notice}</div>{/if}
-      {#if realReminders.length === 0}
-        <div class="state-panel"><h2>No reminder evidence imported</h2><p>Your classified results and staff exceptions will appear here.</p></div>
+      {#if !authReady || loading}<div class="state-panel" role="status">Loading your secure clinic workspace…</div>
+      {:else if !account}<div class="state-panel"><h2>Sign in to continue</h2><p>Clinic data is never available through the public demo.</p><button class="button primary" onclick={signIn}>Sign in with Microsoft</button></div>
+      {:else if !clinic}
+        <form class="setup-form" onsubmit={saveClinic}>
+          <div><h2>Create your clinic workspace</h2><p>This managed workspace belongs to your Entra identity.</p></div>
+          <label>Clinic name<input name="clinic_name" required maxlength="100" autocomplete="organization" /></label>
+          <label>Location name<input name="location_name" required maxlength="100" /></label>
+          <label>Timezone<input name="timezone" required maxlength="64" value="Europe/London" aria-describedby="timezone-help" /><small id="timezone-help">Use an IANA timezone such as Europe/London.</small></label>
+          <button class="button primary" disabled={busy}>Create clinic workspace</button>
+        </form>
       {:else}
-        <div class="real-toolbar"><p><strong>{realReminders.length}</strong> imported reminders · <strong>{realReminders.filter((item) => realOutcome(item).includes('Delivered')).length}</strong> delivered · <strong>{realReminders.filter((item) => !realOutcome(item).includes('Delivered')).length}</strong> need review</p><div><button class="button secondary" onclick={exportRealLedger}>Export proof CSV</button><button class="text-button" onclick={clearRealLedger}>Delete imported data</button></div></div>
-        <section class="ledger-panel" aria-labelledby="real-ledger-title">
-          <div class="panel-heading"><div><p class="eyebrow">Imported provider evidence</p><h2 id="real-ledger-title">Reminder proof ledger</h2></div></div>
-          <ul class="real-list">
-            {#each realReminders as item, index}
-              <li>
-                <div><strong>{item.appointment_time} · {item.patient_alias}</strong><span>{item.id}</span></div>
-                <dl><div><dt>Primary</dt><dd>{item.primary_channel} · {item.consent || 'unknown'} · {item.primary_result || 'unknown'}</dd></div>{#if item.fallback_channel}<div><dt>Fallback</dt><dd>{item.fallback_channel} · {item.fallback_consent || 'unknown'} · {item.fallback_result || 'unknown'}</dd></div>{/if}</dl>
-                <strong class:real-alert={!realOutcome(item).includes('Delivered')}>{realOutcome(item)}</strong>
-                {#if !realOutcome(item).includes('Delivered')}<label>Exception owner<input aria-label={`Exception owner for ${item.patient_alias}`} value={item.owner} onblur={(event) => setRealOwner(index, event.currentTarget.value)} /></label>{/if}
-              </li>
-            {/each}
-          </ul>
+        <div class="summary-grid" aria-label="Clinic reminder summary"><div><span>Reminders</span><strong>{clinic.reminders.length}</strong><small>from the connector</small></div><div><span>Provider proof</span><strong>{clinic.reminders.filter((item) => ['delivered', 'read'].includes(item.status)).length}</strong><small>terminal receipts</small></div><div><span>Exceptions</span><strong>{clinic.reminders.filter((item) => item.exception && item.exception.state !== 'resolved').length}</strong><small>need a person</small></div></div>
+        <section class="setup-columns" aria-label="Clinic connection setup">
+          <form class="setup-form" onsubmit={saveConnector}><div><p class="eyebrow">Source</p><h2>Signed calendar connector</h2><p>Your EMR or calendar posts appointments through a signed HTTPS request.</p></div><label>Signing secret<input name="webhook_secret" type="password" minlength="16" maxlength="200" required autocomplete="new-password" /></label><button class="button secondary" disabled={busy}>Create connector</button>{#if clinic.connector}<p class="config-proof"><strong>Connected:</strong> {clinic.connector.id}</p>{/if}{#if connectorSecret}<p class="state-notice warning"><strong>Copy now:</strong> {connectorSecret}</p>{/if}</form>
+          <form class="setup-form" onsubmit={saveProvider}><div><p class="eyebrow">Delivery</p><h2>Approved provider</h2><p>Twilio sends SMS or approved WhatsApp. Resend sends email.</p></div><label>Channel<select name="channel" required><option value="sms">SMS</option><option value="email">Email</option><option value="whatsapp">WhatsApp</option></select></label><label>Account ID<input name="account_id" maxlength="200" /></label><label>Provider credential<input name="secret" type="password" required maxlength="300" autocomplete="new-password" /></label><label>Approved sender<input name="from" required maxlength="300" /></label><label>Approved template ID<input name="approved_template_id" required maxlength="300" /></label><label>Receipt signing secret<input name="webhook_secret" type="password" required minlength="16" maxlength="300" autocomplete="new-password" /><small>For Resend, enter its webhook secret (starts with <code>whsec_</code>). Twilio verifies callbacks with the provider credential.</small></label><button class="button secondary" disabled={busy}>Save provider</button>{#if clinic.providers.length > 0}<ul class="config-list">{#each clinic.providers as provider}<li><strong>{provider.channel} · {provider.kind}</strong><span>Receipt URL: {origin}/api/v1/providers/{provider.kind === 'twilio' ? 'twilio/' : 'resend/'}{provider.id}/receipts</span></li>{/each}</ul>{/if}</form>
         </section>
+        <section class="ledger-panel" aria-labelledby="clinic-ledger-title"><div class="panel-heading"><div><p class="eyebrow">Delivery ledger</p><h2 id="clinic-ledger-title">Real reminder evidence</h2></div><span>{clinic.location_name} · {clinic.timezone}</span></div>
+          {#if clinic.reminders.length === 0}<div class="state-panel"><h3>No appointments received</h3><p>Connect your source and send its first signed appointment batch.</p></div>{:else}<ul class="real-list">{#each clinic.reminders as reminder}<li><div><strong>{reminder.appointment_time} · {reminder.patient_alias}</strong><span>{reminder.source_id}</span></div><div><strong>{statusLabel(reminder.status)}</strong><span>{reminder.timeline.at(-1)?.outcome}</span></div><div>{reminder.channels.map((item) => `${item.channel}: ${item.consent}`).join(' → ')}</div><button class="button secondary" onclick={() => dispatchReminder(reminder.id)} disabled={busy || reminder.status !== 'scheduled'}>Dispatch approved reminder</button>{#if reminder.exception}<label>Exception owner<input value={reminder.exception.owner ?? ''} aria-label={`Exception owner for ${reminder.patient_alias}`} onblur={(event) => saveException(reminder.exception!.id, 'assign', event.currentTarget.value)} /></label>{#if reminder.exception.owner && reminder.exception.state !== 'resolved'}<button class="text-button" onclick={() => saveException(reminder.exception!.id, 'resolve', 'Called patient')}>Resolve as Called patient</button>{/if}{/if}</li>{/each}</ul>{/if}
+        </section>
+        <section class="billing-panel" aria-labelledby="billing-title"><div><p class="eyebrow">Subscription</p><h2 id="billing-title">Clinic plan</h2><p>$79 per location each month, plus published messaging charges. Checkout and subscription status are handled by Sociobot.</p><p><strong>Status:</strong> {clinic.subscription.status === 'active' ? 'Active' : 'Required before live dispatch'}</p></div><button class="button primary" onclick={startCheckout} disabled={busy}>Subscribe through Sociobot <span class="sr-only">(opens Sociobot checkout)</span></button></section>
+        <div class="data-actions"><button class="text-button" onclick={exportClinic}>Export clinic data</button><button class="text-button danger-action" onclick={deleteClinic}>Delete clinic workspace</button><span>Export includes minimized reminder evidence and exceptions.</span></div>
       {/if}
-      <section class="boundary-section compact" aria-labelledby="real-boundary"><div><h2 id="real-boundary">What this real workflow does not do</h2></div><p>It does not dispatch patient messages, connect to an EMR, or verify provider signatures. Those steps require clinic credentials, contracts, and privacy review.</p></section>
     </section>
   {:else if pagePath === '/privacy'}
-    <section class="legal-page" aria-labelledby="page-title"><p class="eyebrow">Privacy</p><h1 id="page-title" tabindex="-1">How Reminder Proof handles data</h1><p class="lede">The demo creates a random, short-lived sample workspace. It contains fictional aliases and simulated provider events.</p><h2>What the demo stores</h2><p>An HttpOnly, Secure browser cookie holds compact sample state. It expires within 24 hours. Reset demo replaces it with a new sample.</p><h2>Real CSV imports</h2><p>The real evidence tool stores imported rows only in this browser. Delete imported data removes that local copy. Use aliases and do not import clinical notes.</p><h2>What the site does not do</h2><p>It does not load a tracking script. The demo does not call a payment service, messaging provider, or clinic connector.</p><h2>Current limit</h2><p>Accounts, managed clinic storage, live provider sending, and subscriptions are not available. Do not use the service as a medical record.</p></section>
+    <section class="legal-page" aria-labelledby="page-title"><p class="eyebrow">Privacy</p><h1 id="page-title" tabindex="-1">How Reminder Proof handles data</h1><p class="lede">The public demo and signed-in clinic workspaces are separate.</p><h2>Public demo</h2><p>An HttpOnly, Secure browser cookie holds compact fictional sample state. It expires within 24 hours.</p><h2>Managed clinic data</h2><p>Clinic data is stored on the service and scoped to the stable Entra account ID. Provider credentials are encrypted and never returned to the browser.</p><h2>Minimum patient data</h2><p>Use aliases, contact destinations, consent evidence, and appointment times. Do not store clinical notes, diagnoses, or treatment details.</p><h2>Providers and billing</h2><p>Real dispatch sends the approved reminder to the configured Twilio or Resend endpoint. Subscription checkout and verification use Sociobot.</p><h2>Tracking and control</h2><p>No tracking script loads. Signed-in clinics can export or delete their workspace. Do not use Reminder Proof as a medical record.</p></section>
   {:else if pagePath === '/terms'}
-    <section class="legal-page" aria-labelledby="page-title"><p class="eyebrow">Terms</p><h1 id="page-title" tabindex="-1">Terms for Reminder Proof</h1><p class="lede">Reminder Proof is a delivery-evidence layer for clinic reminder operations. It is not a medical system and does not provide medical advice.</p><h2>Sample clinic</h2><p>The public demo uses fictional sample data and simulated provider outcomes. Do not enter real patient or clinic information into it.</p><h2>Planned monthly plan</h2><p>The Clinic plan is $79 per location each month, plus published messaging charges. Billing is unavailable in M1. Sociobot and Dodo will be the merchant flow after accounts ship.</p><h2>Clinic responsibilities</h2><p>Clinic operators remain responsible for consent, lawful messaging, source records, and their local privacy obligations.</p></section>
+    <section class="legal-page" aria-labelledby="page-title"><p class="eyebrow">Terms</p><h1 id="page-title" tabindex="-1">Terms for Reminder Proof</h1><p class="lede">Reminder Proof is a delivery-evidence layer for clinic reminder operations. It is not a medical system and does not provide medical advice.</p><h2>Sample clinic</h2><p>The public demo uses fictional sample data and simulated provider outcomes. Do not enter real patient or clinic information into it.</p><h2>Monthly plan</h2><p>The Clinic plan is $79 per location each month, plus published messaging charges. Sociobot is the checkout and subscription service.</p><h2>Clinic responsibilities</h2><p>Clinic operators remain responsible for consent, lawful messaging, approved provider accounts, source records, and local privacy obligations.</p></section>
   {:else}
     <section class="not-found" aria-labelledby="page-title"><PulseLedger label="A quiet empty proof ledger." /><div><p class="eyebrow">404</p><h1 id="page-title" tabindex="-1">This page has no ledger entry</h1><p>Return to the page that explains the sample clinic.</p><a class="button primary" href="/" onclick={(event) => follow(event, '/')}>Go to Reminder Proof</a></div></section>
   {/if}
 </main>
 
-<footer class="site-footer"><p>Reminder Proof records delivery evidence and staff-owned exceptions around an existing clinic calendar.</p><nav aria-label="Footer"><a href="/privacy" onclick={(event) => follow(event, '/privacy')}>Privacy</a><a href="/terms" onclick={(event) => follow(event, '/terms')}>Terms</a><a href="https://sociobot.in" rel="external">Built by Param Factory <span class="sr-only">(opens Sociobot)</span></a></nav><small>m1-public-proof-sandbox</small></footer>
+<footer class="site-footer"><p>Reminder Proof records delivery evidence and staff-owned exceptions around an existing clinic calendar.</p><nav aria-label="Footer"><a href="/privacy" onclick={(event) => follow(event, '/privacy')}>Privacy</a><a href="/terms" onclick={(event) => follow(event, '/terms')}>Terms</a><a href="https://sociobot.in" rel="external">Built by Param Factory <span class="sr-only">(opens Sociobot)</span></a></nav><small>managed-clinic-workflow</small></footer>

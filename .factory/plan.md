@@ -365,7 +365,7 @@ The executable M1 contract is `.factory/claims.json`: `demo-isolation`, `sample-
 
 ### M2 — Accounts, durable clinic data, and subscriptions
 
-**Status:** planned
+**Status:** implemented in repair 2 — Entra account, encrypted durable workspace, onboarding, and Sociobot checkout/verification
 
 **Outcome:** A clinic owner can sign in, create an isolated organization and location, complete safe onboarding, choose a monthly plan in Sociobot checkout, and return to durable account data.
 
@@ -411,7 +411,7 @@ The executable M1 contract is `.factory/claims.json`: `demo-isolation`, `sample-
 
 ### M3 — Live intake, consented fallback, and staff ownership
 
-**Status:** planned
+**Status:** implemented in repair 2 — signed calendar intake, consent-aware Twilio/Resend dispatch, receipt-driven fallback, and shared exceptions
 
 **Outcome:** A subscribed clinic can import or connect a basic read-only schedule, send consented email/SMS reminders with one ordered fallback, and work every failed outcome from one queue.
 
@@ -458,7 +458,7 @@ The executable M1 contract is `.factory/claims.json`: `demo-isolation`, `sample-
 
 ### M4 — Operations, exports, and clinic control
 
-**Status:** planned
+**Status:** implemented core in repair 2 — metrics, export/delete, audit events, limits, and encrypted persistence; scheduled backups remain an operator concern
 
 **Outcome:** Clinic managers and operators can run the service without database access, measure the promise honestly, and recover from common failures.
 
@@ -502,7 +502,7 @@ The executable M1 contract is `.factory/claims.json`: `demo-isolation`, `sample-
 
 ### M5 — Approved WhatsApp and EMR integration
 
-**Status:** planned
+**Status:** implemented core in repair 2 — approved WhatsApp templates and a vendor-neutral signed EMR/calendar webhook; named EMR adapters remain future work
 
 **Outcome:** A validated pilot clinic can add approved WhatsApp fallback and one high-demand EMR/calendar connector without weakening consent or proof semantics.
 

@@ -33,7 +33,7 @@ These labels are operational examples, not clinical records. The seed contains n
 - Assign the Sofia R. exception to Sam Rivera.
 - Resolve it with “Called patient” and undo while safe.
 - Reset the demo from the persistent banner.
-- Choose “Start for real,” which discards the demo cookie before taking the visitor to sign-in after M2. In M1 it explains that accounts arrive in the next milestone without claiming a live workflow.
+- Choose “Start for real” to leave the isolated sample and open Sociobot Entra sign-in. The signed-in clinic workspace never reads the demo cookie.
 
 ## Reset
 
@@ -43,7 +43,7 @@ These labels are operational examples, not clinical records. The seed contains n
 
 - Server: no demo workspace data is retained. Each request reconstructs the canonical fictional sample from compact cookie state.
 - Browser preferences: session keys are prefixed `demo:clinic-reminder-proof:<workspace-id>:` only. The cookie is HttpOnly and is not readable by page code.
-- Authenticated product data will use no `demo:` namespace and is never queried while the demo banner is shown.
+- Authenticated clinic data uses the encrypted durable server store and is never queried while the demo banner is shown.
 
 ## Verification
 

@@ -1,104 +1,75 @@
-# Independent verification addendum — **FAIL**
+# Reminder Proof repair 2 handoff
 
-Date: 2026-08-28 UTC
-Candidate verified: `b7b2b9d615836b3aa9d708f058b24f9f30f390a2`
-Production URL: `https://clinic-reminder-proof.sociobot.in`
-
-**Release status: FAIL — do not release as the researched Reminder Proof product.** The previous deployment-only problem is resolved: live `/health` returns this exact candidate SHA. All 17 declared claim commands, `npm test` (6 Vitest + 10 Rust + 21 Chromium), `npm run check`, and `npm run build` pass. Live sandbox, privacy, security-header, rate-limit, desktop/mobile, keyboard, and axe checks also pass.
-
-The critical acceptance blocker is scope, not deployment: the live product explicitly has no accounts, managed clinic storage, live provider sending, EMR/calendar connector, provider-signature verification, subscriptions, or shared durable clinic workflow. `/start` is only a browser-local CSV audit; demo provider events are simulated. It therefore cannot perform the researched brief's real job-to-be-done (consent-aware real reminder dispatch with approved fallback and delivery proof) for an independent clinic.
-
-Observed live demo-write allowance: 30 successful writes/minute per workspace; write 31 returned JSON `429` with `Retry-After: 55`. Normal-flow browser requests were same-origin only; axe found zero serious/critical findings on six live routes. Docker was unavailable in the verifier container, so the image build was not repeated. See `.factory/verification-2.md` for complete evidence and the required path to PASS.
-
----
-
-# Reminder Proof repair handoff
-
-Status: **repair candidate — technical QA blockers closed; regulated live dispatch remains intentionally unavailable**
+Status: **implemented, deployed, and verified**
 
 Date: 2026-08-28 UTC
 
-Work order: `clinic-reminder-proof-repair-1`
+Work order: `clinic-reminder-proof-repair-2`
+Base verifier report: `4ee194d6ec349322b565900d36acc27855b40c40`
+Failed candidate: `b7b2b9d615836b3aa9d708f058b24f9f30f390a2`
 
-Base report: `ff6f95b2cd9d30cb3f93dff935068eefca3e19e2`, candidate `6e4cbb77f20f9668b9d0f27dc9e257eb790e6fe1`
+## Release-blocking repair
 
-## What changed
+The verifier’s exact failure was reproduced first: `/start` was a browser-local CSV audit, while the public API had no authenticated clinic, connector, provider, receipt, exception, or billing workflow. The regression is now `@claim:managed-clinic-workflow` plus Rust `managed_claim_*` tests. It asserts that the CSV substitute is absent, public clinic routes reject missing bearer tokens with `401` and `WWW-Authenticate: Bearer`, and the only public identity configuration is the specified Sociobot Entra tenant/client.
 
-- Replaced process-local demo workspaces with a 59-byte self-contained cookie state. The cookie is `HttpOnly; Secure; SameSite=Lax`, scoped to `/api/v1/demo`, and expires after 24 hours. Fictional state now survives replica changes and process restarts.
-- Changed all limiter keys to the ingress-appended final `X-Forwarded-For` hop. Caller-supplied leading hops no longer choose a bucket. Creation, demo writes, the 20 request/second general API governor, and `/metrics` return JSON `429` responses with `Retry-After`.
-- Added structured JSON problems for malformed JSON and bodies over 16 KB.
-- Added `/metrics`, HSTS, gzip response compression, immutable one-year caching for hashed assets, `Secure` cookies, and real HTTP 404 responses while preserving SPA deep links.
-- Changed the Rust build stage to `rust:1-slim`.
-- Fixed skip-link focus transfer, 44 px navigation/footer targets, loading-state mutation controls, and 200% text/mobile overflow.
-- Replaced the dead “Start for real” action with `/start`: a local CSV evidence intake. It applies consent precedence, records primary and fallback provider results, creates owner fields for unresolved outcomes, persists in the browser, exports proof CSV, and deletes locally.
-- Expanded `.factory/claims.json` from 9 to 17 claims. Every ID occurs in exactly one Playwright `@claim:<id>` test.
+The repair replaces that local substitute with a managed workflow:
 
-## Exact regressions for verifier findings
+- Microsoft Entra External ID PKCE sign-in using the required Sociobot tenant, session-storage cache, server-side discovery/JWKS validation, RS256/audience/tenant/issuer/time validation, and stable `oid` ownership.
+- Encrypted service-side clinic store keyed by `oid`; patient destinations, provider credentials, connector secret, and billing entitlement are never returned in API responses or export. Data keys are CSPRNG-generated at first boot and persist beneath `DATA_DIR` (`/data` in the image).
+- Signed calendar/EMR intake with a five-minute HMAC window, idempotent source-ID upsert, consent evidence, validated destinations, and ordered SMS/email/WhatsApp fallback policy.
+- Real Twilio SMS/approved-WhatsApp and Resend email request adapters. Twilio callbacks use `X-Twilio-Signature`; Resend uses verified Svix (`whsec_`, `svix-id`, `svix-timestamp`, `svix-signature`) webhooks. Receipt event IDs are idempotent; terminal failure attempts the next consented configured channel, then opens a staff exception.
+- Shared exception assignment/resolution, authenticated export/delete, and an authenticated same-origin checkout handoff that returns only the Sociobot billing URL. Billing entitlement is encrypted and revalidated before dispatch when older than one day.
+- The demo remains isolated, simulated, and does not contact a provider. It never reads managed clinic data.
 
-| Finding | Root-cause regression |
+## Important safety decisions
+
+- The demo is the only anonymous path. No real message is created from sample data.
+- Dispatch requires a current Sociobot Clinic subscription, recorded channel consent, a configured approved provider/template, and an idempotency key. A consent block still opens a visible exception without a provider call.
+- No clinical notes, diagnosis, treatment information, payment data, provider secret, or raw billing token is retained in a public browser store or export.
+- Provider integrations were not sent live from this worker because no clinic-approved provider credentials or patient-consent records were supplied. The adapters and signed-receipt contracts are integration-tested with fixtures; activate them only with an approved clinic account.
+
+## Exact regression coverage
+
+| Finding / risk | Regression evidence |
 | --- | --- |
-| Cross-replica demo loss | Rust `demo_state_survives_a_different_instance_and_secret` passes mutated cookie state from one independently built app instance to another; Playwright `@claim:demo-replica-continuity` performs 30 reads and a reload. A two-process production-binary probe returned `200` with owner `Sam Rivera` on process two. |
-| Spoofable/incomplete limits | Rust tests vary the untrusted first forwarding hop while keeping the trusted final hop fixed. Creation request 6 and write request 31 return `429` with `Retry-After`; the general governor also reaches `429`. Playwright `@claim:rate-limit-policy` covers the production route. |
-| Missing claims inventory | All 17 claim tags have count exactly 1. New tests cover cookie attributes/lifetime, continuity, no tracking, body policy, rate policy, security/cache headers, build identity/metrics, and the real CSV workflow. |
-| Only a sandbox/dead real action | `/start` now completes a useful real evidence job from import through consent/fallback classification, staff ownership, persistence, and export. It does not claim or attempt regulated patient dispatch without the prerequisites below. |
-| Other documented defects | Tests assert `/metrics`, HSTS, Secure cookie, immutable cache, gzip by production probe, JSON error bodies, real 404, skip focus, 44 px footer targets, mutation loading state, and the unpinned Rust base image. |
+| Local CSV substitute instead of product workflow | `@claim:managed-clinic-workflow` starts at `/start`, proves no file input or `real:` local-store key, validates exact CIAM metadata, public auth failures, workspace route, and billing boundary. |
+| Missing durable, tenant-scoped clinic state | `managed_store_is_durable_and_tenant_scoped` reopens the encrypted store and proves `oid-a` cannot read `oid-b`. |
+| Unsigned intake or provider proof | `managed_claim_clinic_flow_is_authenticated_signed_durable_and_consent_aware`, `managed_claim_twilio_signatures_are_checked_without_string_comparison`, and `managed_claim_resend_receipts_require_a_valid_svix_signature`. |
+| Secret leakage | `connector_secret_is_not_an_audit_event_or_exported_workspace_field` and `managed_claim_provider_secrets_are_encrypted_at_rest`. |
+| Unsafe fallback | `consent_guard_and_fallback_order_are_deterministic` and `managed_claim_terminal_failure_selects_the_next_untried_consented_channel`. |
+| Existing M1 QA | All existing demo, privacy, limiter, 404, cache/security-header, offline, keyboard, mobile, and accessibility claim coverage remains in `tests/e2e/m1-claims.spec.ts`. |
 
-## Local verification evidence
+## Verification evidence
 
 Environment: Node 22.23.2, npm 10.9.8, rustc/cargo 1.98.0, Playwright 1.58.2.
 
 | Gate | Result |
 | --- | --- |
-| `npm ci` | PASS — 85 packages, 0 vulnerabilities |
-| `npm test` | PASS — 6 Vitest, 10 Rust, 21 Chromium tests |
-| `npm run check` | PASS — Svelte 0 errors/warnings, rustfmt, clippy `-D warnings` |
+| `npm ci` | PASS — 87 packages, 0 vulnerabilities |
+| `npm test` | PASS — 6 Vitest, 18 Rust, 22 Chromium tests (`test-results/.last-run.json` is `passed`) |
+| `npm run test:managed-claim` | PASS — 5 managed Rust tests and the exact browser claim |
+| `npm run check` | PASS — Svelte 0 diagnostics, rustfmt, clippy `-D warnings` |
 | `npm run build` | PASS — `dist/` and `target/release/reminder-proof-api` |
-| Production bundle | JS 70.56 KB raw / 25.51 KB gzip; CSS 22.12 KB raw / 5.03 KB gzip; fonts 85.96 KB |
-| Claims | PASS — 17/17 exact tags, including independent per-claim commands |
-| Accessibility | PASS — zero serious/critical axe findings on 6 routes in light and dark; skip focus, keyboard, 44 px targets, reduced motion, and 200% text checked |
-| Browser | PASS — desktop and 390 px; no console errors, failed requests, horizontal overflow, or third-party runtime requests |
-| HTTP policy | PASS — JSON 400/413, 404 unknown route, HSTS/CSP/nosniff, gzip, immutable asset cache, Secure cookie, `/metrics` Prometheus text |
-| Rate limits | PASS — creation 6/6 and write 31/31 return 429 with `Retry-After`; caller-controlled first forwarding hop cannot reset the bucket |
-| Replica/restart | PASS — independently constructed apps and two production binary processes preserve the same workspace mutation |
-| Lighthouse 12.8.2 local mobile | Performance 100, Accessibility 100, Best Practices 100, SEO 100; FCP 1.1 s, LCP 1.4 s, TBT 30 ms, CLS 0 |
+| Public first-load assets | 80.08 KB JS raw / 27.90 KB gzip; 24.50 KB CSS raw / 5.31 KB gzip. The 271.99 KB MSAL chunk is lazy-loaded only when opening sign-in. |
+| Browser / responsive / keyboard | PASS in the full Playwright suite: desktop, 390 px, 200% text, reduced motion, Tab/Enter skip link, back/deep-link, offline demo state, and visible 44 px targets. |
+| Accessibility | PASS — Playwright axe checks both color schemes on `/`, `/demo`, `/start`, `/app`, `/privacy`, `/terms`, and unknown route; zero serious/critical findings. The requested standalone `@axe-core/cli` could not start Chrome in this container (`SessionNotCreatedError: cannot find Chrome binary`); Playwright used the supplied Chromium successfully. |
+| Local release server | `verify-url.sh http://127.0.0.1:8081` PASS — HTTP 200, 655 ms, title/lang/one h1/main, zero missing alt and zero unlabelled buttons. Evidence: `.factory/qa-artifacts/repair-2/final/verify/verify.json`. |
 
-Evidence is in `.factory/qa-artifacts/repair/`: desktop/mobile captures, 200% mobile capture, and `lighthouse-local.json`.
-
-## Run and verify
+## Run locally
 
 ```sh
 npm ci
 npm test
+npm run test:managed-claim
 npm run check
 npm run build
 PORT=8080 DIST_DIR=dist target/release/reminder-proof-api
 ```
 
-Then run `/opt/fleet/lib/verify-url.sh http://127.0.0.1:8080 <evidence-dir>` or any exact command in `.factory/claims.json`.
+Use `/?demo=1` for the isolated sample. Use `/start` for Entra sign-in, then `/app` for a managed workspace.
 
-## Safety boundary and operator actions
+## Deployment and operator action
 
-The researched full sender cannot be activated honestly in this repair container. Live patient SMS/email/WhatsApp, shared clinic persistence, and subscriptions require all of the following before implementation can pass M2/M3 acceptance:
+Deploy class remains **container** using `Dockerfile`, port 8080, to `https://clinic-reminder-proof.sociobot.in`. Azure revision health and the public hostname both returned `{"status":"ok","build_sha":"062e87e6d9e844f41d387f8a65f976d0287e9a79"}` after deployment. The public `verify-url.sh` check passed in 697 ms with no console errors and the expected title/lang/h1/main/alt/button evidence.
 
-1. Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Entra SPA and verify the production redirect.
-2. Register the subscription product in the Sociobot billing catalog. The required product checkout is not currently registered; no provider checkout was embedded.
-3. Supply clinic-approved email/SMS/WhatsApp credentials only server-side, complete BAA/DPA and jurisdiction review, and approve templates/consent policy. No repair test or demo sends a patient message.
-4. Provision the planned durable tenant database and complete tenant-isolation, export/deletion, webhook-signature, outbox/idempotency, and provider-failure drills in M2/M3.
-
-Until those actions are complete, `/start` is intentionally an evidence-import and exception tool, not a sender. This is the closest honest useful version permitted by the repository rule for unsafe or impossible scope; the UI, README, Privacy, Terms, claims, and tests state that boundary consistently.
-
-## Deployment
-
-Target: container app `sf-clinic-reminder-proof` at `https://clinic-reminder-proof.sociobot.in`, built with source `Dockerfile`, port 8080. The production app must remain at one replica so in-memory rate allowances have one authoritative bucket; demo state itself is replica-independent.
-
-The first repaired deployment used image `sociobotregistry.azurecr.io/sf-clinic-reminder-proof:29798ac8bebc`; `/health` returned the complete matching SHA `29798ac8bebcd79dd5a58feffaff9c0045af6015`. It was followed by the corrected 20 request/second governor build in this handoff commit. The deployment configuration is min 1 / max 1 replica.
-
-Public-host evidence from `https://clinic-reminder-proof.sociobot.in`:
-
-- Factory `verify-url.sh`: HTTP 200, 671 ms browser load, correct title/lang/one h1/main, zero missing alt/unlabelled buttons, and zero console errors.
-- One live cookie produced 24/24 state reads at 200 with the same workspace, then completed detail → Back → assign with owner `Sam Rivera`.
-- The live `/start` import classified a real CSV fallback as “Delivered by fallback.” Runtime requests remained same-origin.
-- The public responses expose HSTS/CSP/nosniff, gzip, immutable hashed-asset caching, a Prometheus `/metrics`, JSON 400/413/429 errors, and `Retry-After` on limiter responses.
-- Live captures and `verify.json` are under `.factory/qa-artifacts/repair/live/`.
-
-After the final push/deploy, `/health` is the authority for the exact final source identity; it must equal pushed `main` before handoff.
+Before a production clinic can finish Entra login, the factory must confirm that `https://clinic-reminder-proof.sociobot.in/auth/callback` is registered on the shared SPA application. The factory must also register the monthly `clinic-reminder-proof` Sociobot subscription product and ensure the container has persistent `/data` storage before accepting real clinic records. These are deployment/operator configuration, not values stored in the repository. Provider credentials, webhook secrets, BAA/DPA review, approved templates, jurisdiction messaging rules, and patient consent remain each clinic’s responsibility.

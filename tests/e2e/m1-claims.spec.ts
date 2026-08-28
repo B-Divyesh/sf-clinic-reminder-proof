@@ -210,37 +210,36 @@ test('@claim:build-identity Health reports the running build identity and metric
   expect(await metrics.text()).toContain('reminder_proof_http_requests_total');
 });
 
-test('@claim:real-csv-proof Real CSV evidence is classified, assigned, kept locally, and exported.', async ({ page }) => {
-  await openDemo(page);
-  await page.getByRole('button', { name: 'Start for real' }).click();
-  await expect(page).toHaveURL(/\/start$/);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Audit real reminder results');
-  await page.getByLabel('Choose CSV file').setInputFiles({
-    name: 'reminder-results.csv',
-    mimeType: 'text/csv',
-    buffer: Buffer.from([
-      'reminder_id,patient_alias,appointment_time,primary_channel,consent,primary_result,fallback_channel,fallback_consent,fallback_result',
-      'r-1,Patient A,2026-09-01 09:00,SMS,allowed,delivered,,,',
-      'r-2,Patient B,2026-09-01 10:00,SMS,blocked,not_sent,,,',
-      'r-3,Patient C,2026-09-01 11:00,SMS,allowed,failed,Email,allowed,delivered'
-    ].join('\n'))
-  });
-  await expect(page.getByText('3 reminder results imported.')).toBeVisible();
-  await expect(page.locator('.real-list')).toContainText('Blocked before dispatch');
-  await expect(page.locator('.real-list')).toContainText('Delivered by fallback');
-  await page.getByLabel('Exception owner for Patient B').fill('Alex');
-  await page.getByLabel('Exception owner for Patient B').blur();
-  await page.reload();
-  await expect(page.getByLabel('Exception owner for Patient B')).toHaveValue('Alex');
-  const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export proof CSV' }).click();
-  expect((await download).suggestedFilename()).toBe('reminder-proof-ledger.csv');
+test('@claim:managed-clinic-workflow Clinics use managed data, approved dispatch, proof, CIAM, and Sociobot billing.', async ({ page }) => {
+  await page.goto('/start');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Connect your clinic reminders');
+  await expect(page.getByText('Sociobot Microsoft Entra protects each clinic workspace.')).toBeVisible();
+  await expect(page.getByText('A signed calendar feed and encrypted provider credentials keep systems separate.')).toBeVisible();
+  await expect(page.getByText('Consent, fallback attempts, signed receipts, and staff action stay in one timeline.')).toBeVisible();
+  await expect(page.locator('input[type="file"]')).toHaveCount(0);
+  expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('real:')))).toEqual([]);
+  await expect(page.getByText('Subscription checkout opens after you sign in and create a clinic workspace.')).toBeVisible();
+  const config = await page.request.get('/api/v1/auth/config');
+  expect(await config.json()).toMatchObject({ tenant_id: '35c6fe40-0ec0-46b6-98c6-213ad4de6650', client_id: '25c704f4-465a-47af-80ab-2c489466b697', authority: 'https://sociobotcustomers.ciamlogin.com/35c6fe40-0ec0-46b6-98c6-213ad4de6650/' });
+  for (const endpoint of ['/api/v1/clinic', '/api/v1/clinic/export']) {
+    const response = await page.request.get(endpoint, { maxRedirects: 0 });
+    expect(response.status(), endpoint).toBe(401);
+    expect(response.headers()['www-authenticate']).toBe('Bearer');
+  }
+  const checkout = await page.request.post('/api/v1/billing/checkout', { data: { tier: 'clinic' } });
+  expect(checkout.status()).toBe(401);
+  expect(checkout.headers()['www-authenticate']).toBe('Bearer');
+  const intake = await page.request.post('/api/v1/connectors/intake', { data: { connector_id: 'missing', appointments: [] } });
+  expect(intake.status()).toBe(404);
+  await page.goto('/app');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Clinic reminder ledger');
+  await expect(page.getByRole('button', { name: 'Sign in with Microsoft' })).toBeVisible();
 });
 
 test('public routes have no serious or critical axe findings', async ({ page }) => {
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
-    for (const path of ['/', '/demo', '/start', '/privacy', '/terms', '/missing']) {
+    for (const path of ['/', '/demo', '/start', '/app', '/privacy', '/terms', '/missing']) {
       await page.goto(path);
       if (path === '/demo') await expect(page.getByRole('heading', { level: 1 })).toHaveText('Today’s sample reminders');
       const results = await new AxeBuilder({ page }).analyze();
@@ -260,6 +259,7 @@ test('public pages have no console errors and local links resolve', async ({ pag
   for (const path of ['/', '/demo', '/start', '/privacy', '/terms', '/404']) {
     await page.goto(path);
     if (path === '/demo') await expect(page.getByRole('heading', { level: 1 })).toHaveText('Today’s sample reminders');
+    if (path === '/start') await expect(page.getByRole('button', { name: 'Sign in with Microsoft' })).toBeEnabled();
     for (const href of await page.locator('a[href]').evaluateAll((links) => links.map((link) => link.getAttribute('href') ?? ''))) {
       if (href.startsWith('/')) localLinks.add(href);
     }
@@ -293,6 +293,22 @@ test('keyboard, mobile, deep links, back navigation, and offline reads work', as
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await expect(page.getByText(/You’re offline/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Advance due reminders' })).toBeDisabled();
+});
+
+test('managed clinic entry works at 390px, 200% text, reduced motion, and keyboard only', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/start');
+  await expect(page.getByRole('button', { name: 'Sign in with Microsoft' })).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('link', { name: 'Skip to main content' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('main')).toBeFocused();
+  await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const targets = await page.locator('button, a.button').evaluateAll((items) => items.map((item) => ({ width: item.getBoundingClientRect().width, height: item.getBoundingClientRect().height })));
+  expect(targets.every(({ width, height }) => width >= 44 && height >= 44)).toBe(true);
 });
 
 test('unknown browser routes return an HTTP 404 with the styled recovery page', async ({ page }) => {
