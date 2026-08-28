@@ -1,0 +1,36 @@
+{
+  "slug": "clinic-reminder-proof",
+  "title": "Reminder Proof",
+  "territory": "utilities",
+  "user": "Independent dental and outpatient clinics that need reliable appointment reminders, delivery proof, and fallbacks without replacing their EMR.",
+  "evidence": [
+    {
+      "url": "https://hn.algolia.com/api/v1/items/45927422",
+      "date": "2025-11-14",
+      "quote_or_summary": "A dental-clinic software builder spent weeks on WhatsApp appointment reminders, was rejected repeatedly in verification, then had the account banned after three template messages without a useful appeal path."
+    },
+    {
+      "url": "https://github.com/openemr/openemr/issues/12307",
+      "date": "2026-05-29",
+      "quote_or_summary": "OpenEMR’s reminder runner can fail when no reminders are due and has recurring-event and status-update problems, showing that reminder delivery must be observable rather than assumed."
+    },
+    {
+      "url": "https://github.com/calcom/cal.diy/issues/23391",
+      "date": "2025-08-27",
+      "quote_or_summary": "A customer could select an apparently free appointment slot but received a no-available-users error, demonstrating the operational cost of opaque calendar synchronization failures."
+    }
+  ],
+  "recurrence": "Three separate scheduling/reminder failure modes in 2025–26—provider account loss, reminder runner faults, and calendar mismatch—can directly create no-shows and staff callbacks.",
+  "current_workaround": "Staff manually text/call patients, rely on one channel such as WhatsApp, or troubleshoot inside an EMR/calendar after a complaint.",
+  "incumbents_and_gap": "OpenEMR, Cal.com, NexHealth, and reminder vendors own scheduling or messaging. Smaller clinics lack a vendor-neutral delivery ledger that retries across approved channels and makes failures actionable to front desk staff.",
+  "smallest_useful_product": "EMR/calendar connector, consent-aware template sender, SMS/email/approved WhatsApp fallback policy, delivery/response timeline, and staff exception queue. Non-goals: clinical notes, diagnosis, full scheduling, or unapproved bulk messaging.",
+  "success_measure": "A clinic records delivery or a staff-owned exception for 99% of scheduled reminder attempts and reduces reminder-related no-shows by 15% within 90 days.",
+  "artifact_class": "web-with-backend",
+  "monetization": "subscription — $79/location/month plus messaging pass-through fits a recurring appointment volume and measurable no-show cost.",
+  "constraints": "HIPAA/UK GDPR as applicable, patient consent/opt-out, minimal PHI, BAA/DPA readiness, jurisdictional SMS rules, and no medical advice.",
+  "est_build_effort": "L",
+  "scale": "venture",
+  "why_distinct": "It is a reliability and proof layer around an existing calendar/EMR, not another clinical management suite.",
+  "confidence": 4,
+  "state": "RESEARCHED"
+}
