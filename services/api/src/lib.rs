@@ -3,7 +3,7 @@ pub mod demo;
 use std::{path::PathBuf, sync::Arc};
 
 use axum::{
-    extract::Request,
+    extract::{DefaultBodyLimit, Request},
     http::{header, HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -12,11 +12,12 @@ use axum::{
 };
 use serde::Serialize;
 use tower_governor::{
-    governor::GovernorConfigBuilder,
-    key_extractor::SmartIpKeyExtractor,
-    GovernorLayer,
+    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
 };
-use tower_http::{services::{ServeDir, ServeFile}, trace::TraceLayer};
+use tower_http::{
+    services::{ServeDir, ServeFile},
+    trace::TraceLayer,
+};
 
 use crate::demo::{
     advance, advance_due, assign_exception, create_workspace, reset_workspace, resolve_exception,
@@ -47,7 +48,10 @@ pub fn app(build_sha: &'static str, dist_dir: impl Into<PathBuf>, secret: Vec<u8
             .expect("valid public API rate limit"),
     );
     let api = Router::new()
-        .route("/v1/demo/workspaces", post(create_workspace).delete(reset_workspace))
+        .route(
+            "/v1/demo/workspaces",
+            post(create_workspace).delete(reset_workspace),
+        )
         .route("/v1/demo/state", get(demo_state))
         .route("/v1/demo/reminders/advance-due", post(advance_due))
         .route("/v1/demo/reminders/{id}/advance", post(advance))
@@ -55,11 +59,12 @@ pub fn app(build_sha: &'static str, dist_dir: impl Into<PathBuf>, secret: Vec<u8
         .route("/v1/demo/exceptions/{id}/resolve", post(resolve_exception))
         .route("/v1/demo/exceptions/{id}/undo", post(undo_exception))
         .with_state(demo_store)
+        .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(GovernorLayer::new(api_governor));
 
     let dist_dir = dist_dir.into();
     let spa_fallback = ServeFile::new(dist_dir.join("index.html"));
-    let static_files = ServeDir::new(dist_dir).not_found_service(spa_fallback);
+    let static_files = ServeDir::new(dist_dir).fallback(spa_fallback);
 
     Router::new()
         .route("/health", get(health))
@@ -70,7 +75,9 @@ pub fn app(build_sha: &'static str, dist_dir: impl Into<PathBuf>, secret: Vec<u8
         .layer(TraceLayer::new_for_http())
 }
 
-async fn health(axum::extract::State(state): axum::extract::State<Arc<AppState>>) -> impl IntoResponse {
+async fn health(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+) -> impl IntoResponse {
     (
         StatusCode::OK,
         Json(HealthResponse {
@@ -83,14 +90,26 @@ async fn health(axum::extract::State(state): axum::extract::State<Arc<AppState>>
 async fn security_headers(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
-    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
-    headers.insert(header::REFERRER_POLICY, HeaderValue::from_static("strict-origin-when-cross-origin"));
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static("default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'"),
     );
-    headers.insert("permissions-policy", HeaderValue::from_static("camera=(), geolocation=(), microphone=()"));
-    headers.insert("cross-origin-opener-policy", HeaderValue::from_static("same-origin"));
+    headers.insert(
+        "permissions-policy",
+        HeaderValue::from_static("camera=(), geolocation=(), microphone=()"),
+    );
+    headers.insert(
+        "cross-origin-opener-policy",
+        HeaderValue::from_static("same-origin"),
+    );
     response
 }
 
@@ -108,14 +127,25 @@ mod tests {
     #[tokio::test]
     async fn health_reports_build_identity_and_security_headers() {
         let response = test_app()
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers().get("x-content-type-options").unwrap(), "nosniff");
+        assert_eq!(
+            response.headers().get("x-content-type-options").unwrap(),
+            "nosniff"
+        );
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        assert_eq!(std::str::from_utf8(&body).unwrap(), r#"{"status":"ok","build_sha":"test-sha"}"#);
+        assert_eq!(
+            std::str::from_utf8(&body).unwrap(),
+            r#"{"status":"ok","build_sha":"test-sha"}"#
+        );
     }
 
     #[tokio::test]
@@ -137,5 +167,23 @@ mod tests {
             }
         }
         assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn demo_write_body_is_capped() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/demo/exceptions/sofia-exception/assign")
+                    .header("x-forwarded-for", "198.51.100.17")
+                    .header("content-type", "application/json")
+                    .header("content-length", "17000")
+                    .body(Body::from(vec![b'x'; 17_000]))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 }

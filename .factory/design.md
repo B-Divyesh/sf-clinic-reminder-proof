@@ -224,14 +224,14 @@ Default description: “Track appointment reminder attempts, delivery evidence, 
 
 ## Original asset plan and provenance
 
-No imagery or font binary is committed in the planning scaffold.
+M1 asset implementation record (2026-08-28): no generated imagery or stock material was used. All visual assets below are original repository assets or self-hosted OFL font files emitted by the build.
 
 M1 creates these original assets:
 
-1. **Pulse ledger field** — hand-authored SVG/CSS by the M1 builder. Parallel ruled lines, translucent evidence slips, five semantic markers, and no embedded text. License: repository MIT. Source file stays in `apps/web/src/lib/art/`; export responsive AVIF/WebP only if rasterization materially improves load.
-2. **Social card** — composed locally from the pulse ledger field and live typography at 1200×630. No stock material. License: repository MIT.
-3. **Favicon/touch icon** — a hand-authored “two ledger lines + proof dot” SVG and local raster export. License: repository MIT.
-4. **Instrument Sans and Fragment Mono subsets** — download only from their official upstream repositories, preserve OFL files and source URLs in `apps/web/public/fonts/README.md`, subset to used Latin glyphs, and self-host with `font-display: swap`.
+1. **Pulse ledger field** — created as `apps/web/src/lib/art/PulseLedger.svelte`. It is hand-authored SVG/CSS with parallel ruled lines, translucent evidence slips, five semantic markers, and no embedded text. License: repository MIT.
+2. **Social card** — created as `apps/web/public/social-card.svg`, 1200×630, composed locally from the pulse-ledger field and live typography. No stock material. License: repository MIT.
+3. **Favicon/touch icon** — created as `apps/web/public/favicon.svg` and `apps/web/public/apple-touch-icon.png`, hand-authored ledger lines plus proof dot. License: repository MIT.
+4. **Instrument Sans and Fragment Mono subsets** — self-hosted through the official `@fontsource-variable/instrument-sans` 5.3.0 and `@fontsource/fragment-mono` 5.2.6 packages. Vite emits the used local assets with `font-display: swap`; OFL source URLs and licenses are recorded in `apps/web/public/fonts/README.md`.
 
 If image generation is introduced later, record the exact prompt, model/deployment, date, edits, review for medical symbols/text/artifacts, and output license here. Generated imagery must be disclosed in the footer/about page. M1 does not need generated raster art; the code-drawn evidence field is more faithful and lighter.
 

@@ -1,7 +1,7 @@
 use std::{env, fs, io, net::SocketAddr, path::PathBuf};
 
-use reminder_proof_api::app;
 use rand::Rng;
+use reminder_proof_api::app;
 use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -37,23 +37,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Reminder Proof API started; demo cookie secret is supplied or generated without printing its value"
     );
 
-    axum::serve(listener, app(BUILD_SHA, dist_dir, demo_secret))
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app(BUILD_SHA, dist_dir, demo_secret).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     Ok(())
 }
 
 fn load_demo_secret() -> io::Result<(Vec<u8>, &'static str)> {
     if let Ok(value) = env::var("DEMO_COOKIE_SECRET") {
-        let bytes = hex::decode(value).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "DEMO_COOKIE_SECRET must be hexadecimal"))?;
+        let bytes = hex::decode(value).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "DEMO_COOKIE_SECRET must be hexadecimal",
+            )
+        })?;
         if bytes.len() < 32 {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "DEMO_COOKIE_SECRET must contain at least 32 bytes"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "DEMO_COOKIE_SECRET must contain at least 32 bytes",
+            ));
         }
         return Ok((bytes, "supplied"));
     }
 
-    let data_dir = env::var_os("DATA_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("data"));
+    let data_dir = env::var_os("DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("data"));
     fs::create_dir_all(&data_dir)?;
     let path = data_dir.join("demo-cookie.key");
     if path.exists() {

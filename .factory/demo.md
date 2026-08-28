@@ -1,6 +1,6 @@
 # Demo sandbox contract
 
-Status: planned for M1; no demo behavior exists in the planning scaffold.
+Status: implemented in M1.
 
 ## Entry and isolation
 
@@ -41,10 +41,12 @@ These labels are operational examples, not clinical records. The seed contains n
 
 ## Storage namespaces
 
-- Server: `demo_workspaces` / demo repository keyed by random workspace ID, TTL 24 hours.
-- Browser preferences: keys prefixed `demo:clinic-reminder-proof:<workspace-id>:` only.
+- Server: an in-memory `demo_workspaces` repository keyed by a random workspace ID, TTL 24 hours. It is intentionally not durable; container restart removes all samples.
+- Browser preferences: session keys are prefixed `demo:clinic-reminder-proof:<workspace-id>:` only. The cookie is HttpOnly and is not readable by page code.
 - Authenticated product data will use no `demo:` namespace and is never queried while the demo banner is shown.
 
 ## Verification
 
 Every M1 claim begins in a fresh browser context at `/?demo=1`. Tests record browser requests for the full flow and allow only the product origin. Provider and billing adapters are replaced by compile-time-disabled demo implementations, not network mocks in the browser. The seed and clock are deterministic in test mode. Test traces and screenshots go under `test-results/` and are never committed.
+
+The reference command is `npm run test:e2e`; each claim tag can be selected with `npm run test:e2e -- --grep @claim:<id>`.

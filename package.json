@@ -19,6 +19,9 @@
     "build:api": "cargo build --release --manifest-path services/api/Cargo.toml"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.0",
+    "@fontsource-variable/instrument-sans": "^5.3.0",
+    "@fontsource/fragment-mono": "^5.2.6",
     "@playwright/test": "1.58.2",
     "@sveltejs/vite-plugin-svelte": "7.3.0",
     "@types/node": "22.20.1",

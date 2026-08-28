@@ -1,6 +1,6 @@
-# Planned M1 copy audit
+# M1 landing copy audit
 
-Status: planning contract. M1 must regenerate this file from rendered route copy before handoff.
+Status: rendered landing copy checked 2026-08-28.
 
 ## First screen
 
@@ -18,7 +18,7 @@ Read-aloud check: “See every reminder outcome. For independent clinics that ne
 
 No sentence exceeds 22 words. None contains: leverage, seamless, effortless, robust, powerful, intuitive, reimagine, supercharge, unlock, delightful, journey, ecosystem, or AI-powered.
 
-## Planned section and state copy
+## Landing sections and state copy
 
 | Copy | Words | Result |
 | --- | ---: | --- |
@@ -30,6 +30,10 @@ No sentence exceeds 22 words. None contains: leverage, seamless, effortless, rob
 | Blocked and exhausted reminders stay visible until a staff member resolves them. | 12 | Pass |
 | This does not replace your calendar or EMR. | 8 | Pass |
 | Reminder Proof stores no clinical notes and sends no marketing campaigns. | 10 | Pass |
+| The M1 demo simulates provider outcomes; it sends no real messages. | 11 | Pass |
+| One clear clinic price. | 5 | Pass |
+| Billing is not available in this milestone. | 7 | Pass |
+| Subscriptions arrive after accounts and clinic data are in place. | 10 | Pass |
 | No reminders are due in this range. | 7 | Pass |
 | Choose another date. | 3 | Pass; action |
 | This source has not synced yet. | 6 | Pass |

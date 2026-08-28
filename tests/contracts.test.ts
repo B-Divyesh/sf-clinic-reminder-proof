@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
+import { effectiveConsent, foldReminderOutcome, stateCopy } from '../apps/web/src/lib/reminder';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
@@ -80,5 +81,28 @@ describe('planning scaffold contracts', () => {
       expect(claim.test).toContain(`@claim:${claim.id}`);
       expect(claim.sandbox.length).toBeGreaterThan(30);
     }
+  });
+});
+
+describe('M1 reminder domain contracts', () => {
+  test('an opt-out wins over any recorded consent', () => {
+    expect(effectiveConsent(['allowed', 'blocked'])).toBe('blocked');
+    expect(effectiveConsent(['unknown'])).toBe('blocked');
+  });
+
+  test('delivery and cancellation fold with safe precedence', () => {
+    expect(foldReminderOutcome([{ kind: 'attempt', outcome: 'Delivered' }])).toBe('delivered');
+    expect(
+      foldReminderOutcome([
+        { kind: 'attempt', outcome: 'Delivered' },
+        { kind: 'source', outcome: 'Cancelled' }
+      ])
+    ).toBe('cancelled');
+    expect(foldReminderOutcome([{ kind: 'consent', outcome: 'Blocked' }])).toBe('exception');
+  });
+
+  test('state copy keeps provider acceptance separate from delivery proof', () => {
+    expect(stateCopy.providerPending).toContain('Delivery is not confirmed');
+    expect(stateCopy.exhausted).toContain('Assign someone');
   });
 });

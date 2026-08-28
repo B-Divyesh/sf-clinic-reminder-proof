@@ -1,8 +1,10 @@
 node_modules/
-dist/
 target/
+dist/
 .svelte-kit/
 coverage/
+.test-data/
+data/
 playwright-report/
 test-results/
 .env

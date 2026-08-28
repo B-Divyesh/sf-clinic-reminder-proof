@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Reminder Proof delivery ledger">
+  <rect width="1200" height="630" fill="#f3f7f5"/>
+  <g stroke="#a9c1c1" stroke-width="2" opacity=".8"><path d="M0 116H1200M0 230H1200M0 344H1200M0 458H1200M0 572H1200"/><path d="M716 0V630M888 0V630M1060 0V630"/></g>
+  <text x="94" y="168" fill="#102a33" font-family="Arial, sans-serif" font-size="70" font-weight="700">See every</text><text x="94" y="246" fill="#102a33" font-family="Arial, sans-serif" font-size="70" font-weight="700">reminder outcome.</text>
+  <text x="98" y="306" fill="#48636b" font-family="Arial, sans-serif" font-size="28">A delivery-evidence ledger for independent clinics.</text>
+  <g fill="#fbfdfc" stroke="#78a6a5" stroke-width="2"><path d="M660 155h210l28 28v80H660z"/><path d="M816 270h210l28 28v80H816z"/><path d="M706 386h210l28 28v80H706z"/></g>
+  <path d="M688 235H843V350H1050M843 350H843V466" fill="none" stroke="#006a73" stroke-width="5"/>
+  <circle cx="843" cy="235" r="18" fill="#216e4a" stroke="#fff" stroke-width="7"/><rect x="1032" y="332" width="36" height="36" rx="3" fill="#8a4f00" stroke="#fff" stroke-width="7" transform="rotate(45 1050 350)"/><circle cx="843" cy="466" r="18" fill="#006a73" stroke="#fff" stroke-width="7"/>
+  <text x="96" y="514" fill="#006a73" font-family="monospace" font-size="22">REMINDER PROOF · SAMPLE LEDGER</text>
+</svg>
