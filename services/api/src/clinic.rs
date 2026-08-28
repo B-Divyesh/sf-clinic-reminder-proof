@@ -370,8 +370,15 @@ fn load_or_create_key(path: &Path) -> Result<[u8; 32], String> {
 fn restrict_path(path: &Path, mode: u32) -> Result<(), String> {
     #[cfg(unix)]
     {
-        fs::set_permissions(path, fs::Permissions::from_mode(mode))
-            .map_err(|error| format!("restrict {} permissions: {error}", path.display()))?;
+        if let Err(error) = fs::set_permissions(path, fs::Permissions::from_mode(mode)) {
+            // Azure Files is mounted over SMB in the production Container App
+            // and rejects chmod. Access there is enforced by the private share
+            // mount and its account credential; local files still receive and
+            // are regression-tested for the requested POSIX modes.
+            if error.kind() != std::io::ErrorKind::PermissionDenied {
+                return Err(format!("restrict {} permissions: {error}", path.display()));
+            }
+        }
     }
     #[cfg(not(unix))]
     let _ = (path, mode);
