@@ -1,6 +1,7 @@
-use std::{env, net::SocketAddr, path::PathBuf};
+use std::{env, fs, io, net::SocketAddr, path::PathBuf};
 
 use reminder_proof_api::app;
+use rand::Rng;
 use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -24,6 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dist_dir = env::var_os("DIST_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("dist"));
+    let (demo_secret, secret_source) = load_demo_secret()?;
     let address = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(address).await?;
 
@@ -31,14 +33,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         address = %address,
         build_sha = BUILD_SHA,
         dist_dir = %dist_dir.display(),
-        "Reminder Proof API scaffold started; no secret configuration is required"
+        demo_cookie_secret = secret_source,
+        "Reminder Proof API started; demo cookie secret is supplied or generated without printing its value"
     );
 
-    axum::serve(listener, app(BUILD_SHA, dist_dir))
+    axum::serve(listener, app(BUILD_SHA, dist_dir, demo_secret))
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
     Ok(())
+}
+
+fn load_demo_secret() -> io::Result<(Vec<u8>, &'static str)> {
+    if let Ok(value) = env::var("DEMO_COOKIE_SECRET") {
+        let bytes = hex::decode(value).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "DEMO_COOKIE_SECRET must be hexadecimal"))?;
+        if bytes.len() < 32 {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "DEMO_COOKIE_SECRET must contain at least 32 bytes"));
+        }
+        return Ok((bytes, "supplied"));
+    }
+
+    let data_dir = env::var_os("DATA_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("data"));
+    fs::create_dir_all(&data_dir)?;
+    let path = data_dir.join("demo-cookie.key");
+    if path.exists() {
+        return Ok((fs::read(path)?, "persisted"));
+    }
+    let mut secret = vec![0_u8; 32];
+    rand::rng().fill(&mut secret[..]);
+    let temporary = data_dir.join(".demo-cookie.key.new");
+    fs::write(&temporary, &secret)?;
+    fs::rename(temporary, path)?;
+    Ok((secret, "generated"))
 }
 
 async fn shutdown_signal() {
