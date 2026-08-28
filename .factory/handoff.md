@@ -1,3 +1,17 @@
+# Independent verification addendum — **FAIL**
+
+Date: 2026-08-28 UTC
+Candidate verified: `b7b2b9d615836b3aa9d708f058b24f9f30f390a2`
+Production URL: `https://clinic-reminder-proof.sociobot.in`
+
+**Release status: FAIL — do not release as the researched Reminder Proof product.** The previous deployment-only problem is resolved: live `/health` returns this exact candidate SHA. All 17 declared claim commands, `npm test` (6 Vitest + 10 Rust + 21 Chromium), `npm run check`, and `npm run build` pass. Live sandbox, privacy, security-header, rate-limit, desktop/mobile, keyboard, and axe checks also pass.
+
+The critical acceptance blocker is scope, not deployment: the live product explicitly has no accounts, managed clinic storage, live provider sending, EMR/calendar connector, provider-signature verification, subscriptions, or shared durable clinic workflow. `/start` is only a browser-local CSV audit; demo provider events are simulated. It therefore cannot perform the researched brief's real job-to-be-done (consent-aware real reminder dispatch with approved fallback and delivery proof) for an independent clinic.
+
+Observed live demo-write allowance: 30 successful writes/minute per workspace; write 31 returned JSON `429` with `Retry-After: 55`. Normal-flow browser requests were same-origin only; axe found zero serious/critical findings on six live routes. Docker was unavailable in the verifier container, so the image build was not repeated. See `.factory/verification-2.md` for complete evidence and the required path to PASS.
+
+---
+
 # Reminder Proof repair handoff
 
 Status: **repair candidate — technical QA blockers closed; regulated live dispatch remains intentionally unavailable**
