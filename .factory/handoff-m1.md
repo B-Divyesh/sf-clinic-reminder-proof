@@ -34,9 +34,11 @@ Playwright traces/screenshots are configured to stay under ignored `test-results
 
 ## Deployment and live check
 
+The M1 commits were pushed to `origin/main` at `02b6b5a`.
+
 The repository was prepared for the container deployment contract: multi-stage image, non-root runtime, `PORT`, `/data`, build SHA args, and no `.git` dependency. Docker is not installed in this worker, so a local image run was not possible.
 
-The injected work order specifies only `deploy: container`, without an Azure Container App, registry, resource group, or factory deployment script for this slug. The visible Azure account has no `clinic-reminder-proof` resource; the only matching resource is an unrelated `sf-reminder-mailroom`. Following the repository contract, this builder did not create or modify infrastructure or deploy to an unrelated app. Consequently the production URL could not be cold-verified from this work order. This is an operator/factory deployment configuration gap, not an application code gap.
+The injected work order specifies only `deploy: container`, without an Azure Container App, registry, resource group, or factory deployment script for this slug. The visible Azure account has no `clinic-reminder-proof` resource; the only matching resource is an unrelated `sf-reminder-mailroom`. Following the repository contract, this builder did not create or modify infrastructure or deploy to an unrelated app. A cold request to `https://clinic-reminder-proof.sociobot.in/` also could not resolve DNS from this worker. Consequently the production URL could not be cold-verified from this work order. This is an operator/factory deployment configuration gap, not an application code gap.
 
 ## What M2 needs
 
