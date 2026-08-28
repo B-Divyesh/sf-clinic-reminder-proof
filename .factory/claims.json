@@ -112,10 +112,24 @@
     "sandbox": "fresh public session; assert health JSON contains status and build_sha and metrics returns Prometheus text"
   },
   {
-    "id": "managed-clinic-workflow",
-    "claim": "Signed-in clinics use managed durable data, signed calendar intake, consent-aware approved-provider dispatch, delivery receipts, shared exceptions, and Sociobot subscription checkout.",
+    "id": "managed-auth-storage",
+    "claim": "A signed-in clinic owns an encrypted durable workspace; another clinic cannot read it.",
     "where": "Start for real, clinic workspace, Privacy page, README",
-    "test": "cargo test --manifest-path services/api/Cargo.toml managed_claim && npm run test:e2e -- --grep @claim:managed-clinic-workflow",
-    "sandbox": "fresh browser context; assert the local CSV substitute is absent, CIAM metadata is exact, clinic APIs require Bearer auth, workflow routes exist, and checkout targets only Sociobot; Rust integration tests exercise durable per-oid storage, signed intake, consent blocking, encrypted provider secrets, and receipt idempotency"
+    "test": "cargo test --manifest-path services/api/Cargo.toml managed_claim_clinic_flow_is_authenticated_signed_durable_and_consent_aware && npm run test:e2e -- --grep @claim:managed-auth-storage",
+    "sandbox": "fixture bearer identities create and restart a workspace, post a signed calendar batch, assert another oid gets no workspace, and assert the browser exposes the exact CIAM configuration with protected APIs"
+  },
+  {
+    "id": "managed-provider-fallback-receipt",
+    "claim": "A rejected approved channel tries the next consented provider and a signed receipt records delivery.",
+    "where": "Start for real, clinic workspace, README",
+    "test": "cargo test --manifest-path services/api/Cargo.toml managed_claim_provider_and_billing_fixtures_complete_observable_outcomes",
+    "sandbox": "a fixture HTTP SMS provider rejects, fixture email accepts, the persisted timeline records both outcomes in order, and a receipt changes the reminder to delivered"
+  },
+  {
+    "id": "managed-billing-return",
+    "claim": "Clinic checkout is hosted by Sociobot and a valid return activates the clinic subscription.",
+    "where": "Start for real, clinic workspace, README",
+    "test": "cargo test --manifest-path services/api/Cargo.toml managed_claim_provider_and_billing_fixtures_complete_observable_outcomes",
+    "sandbox": "a fixture Sociobot checkout responds with a redirect, the same-origin route returns only that URL, and its fixture verification response activates the saved subscription"
   }
 ]

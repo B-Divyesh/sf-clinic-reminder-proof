@@ -8,6 +8,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
@@ -37,6 +40,8 @@ pub struct ClinicState {
     pub auth: AuthService,
     store: ClinicStore,
     client: reqwest::Client,
+    billing_base_url: String,
+    provider_fixture_base_url: Option<String>,
 }
 
 #[derive(Clone)]
@@ -272,21 +277,46 @@ impl From<ClinicWorkspace> for WorkspaceResponse {
 
 impl ClinicState {
     pub fn from_env() -> Result<Self, String> {
-        Self::new(data_dir(), AuthService::from_env())
+        Self::new(data_dir(), AuthService::from_env(), None, None)
     }
 
     #[cfg(test)]
     pub fn for_tests(path: PathBuf) -> Result<Self, String> {
-        Self::new(path, AuthService::for_tests())
+        Self::new(path, AuthService::for_tests(), None, None)
     }
 
-    fn new(dir: PathBuf, auth: AuthService) -> Result<Self, String> {
+    #[cfg(test)]
+    fn for_tests_with_fixtures(
+        path: PathBuf,
+        billing_base_url: String,
+        provider_fixture_base_url: String,
+    ) -> Result<Self, String> {
+        Self::new(
+            path,
+            AuthService::for_tests(),
+            Some(billing_base_url),
+            Some(provider_fixture_base_url),
+        )
+    }
+
+    fn new(
+        dir: PathBuf,
+        auth: AuthService,
+        billing_base_url: Option<String>,
+        provider_fixture_base_url: Option<String>,
+    ) -> Result<Self, String> {
         fs::create_dir_all(&dir).map_err(|error| format!("create data directory: {error}"))?;
+        restrict_path(&dir, 0o700)?;
         let key_path = dir.join("clinic-data.key");
         let key_was_generated = !key_path.exists();
         let key = load_or_create_key(&key_path)?;
-        let connection = Connection::open(dir.join("clinic-data.sqlite3"))
+        let database_path = dir.join("clinic-data.sqlite3");
+        let connection = Connection::open(&database_path)
             .map_err(|error| format!("open clinic database: {error}"))?;
+        // SQLite honours the process umask on first creation. Make this
+        // explicit because the database contains encrypted, but still
+        // sensitive, patient-operation metadata.
+        restrict_path(&database_path, 0o600)?;
         connection
             .execute_batch(include_str!("../migrations/0001_managed_clinic.sql"))
             .map_err(|error| format!("migrate clinic database: {error}"))?;
@@ -301,8 +331,20 @@ impl ClinicState {
                 .timeout(std::time::Duration::from_secs(12))
                 .build()
                 .map_err(|error| error.to_string())?,
+            billing_base_url: billing_base_url
+                .unwrap_or_else(|| "https://api.sociobot.in/api/v1".to_owned())
+                .trim_end_matches('/')
+                .to_owned(),
+            provider_fixture_base_url,
         })
     }
+}
+
+fn billing_product_url(state: &ClinicState, suffix: &str) -> String {
+    format!(
+        "{}/products/clinic-reminder-proof/{suffix}",
+        state.billing_base_url
+    )
 }
 
 fn data_dir() -> PathBuf {
@@ -321,7 +363,19 @@ fn load_or_create_key(path: &Path) -> Result<[u8; 32], String> {
     let mut key = [0_u8; 32];
     rand::rng().fill_bytes(&mut key);
     fs::write(path, key).map_err(|error| format!("persist data key: {error}"))?;
+    restrict_path(path, 0o600)?;
     Ok(key)
+}
+
+fn restrict_path(path: &Path, mode: u32) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))
+            .map_err(|error| format!("restrict {} permissions: {error}", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    let _ = (path, mode);
+    Ok(())
 }
 
 fn now() -> u64 {
@@ -1005,7 +1059,7 @@ async fn ensure_active_subscription(
     let token = state.store.decrypt(encrypted)?;
     let response = state
         .client
-        .get("https://api.sociobot.in/api/v1/products/clinic-reminder-proof/verify")
+        .get(billing_product_url(state, "verify"))
         .query(&[("license", token)])
         .send()
         .await
@@ -1089,6 +1143,38 @@ async fn send_provider(
         .store
         .decrypt(&provider.encrypted_secret)
         .map_err(|_| "credential".to_owned())?;
+    if let Some(base) = &state.provider_fixture_base_url {
+        let response = state
+            .client
+            .post(format!(
+                "{}/send/{}",
+                base.trim_end_matches('/'),
+                channel.channel
+            ))
+            .header("Idempotency-Key", idempotency)
+            .json(&serde_json::json!({
+                "from": provider.from,
+                "to": channel.destination,
+                "template": provider.approved_template_id,
+                "first_name": reminder.first_name,
+                "clinic": workspace.clinic_name,
+                "appointment_time": reminder.appointment_time,
+            }))
+            .send()
+            .await
+            .map_err(|_| "network".to_owned())?;
+        let status = response.status();
+        let value: serde_json::Value = response.json().await.unwrap_or_default();
+        return if status.is_success() {
+            value
+                .get("id")
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+                .ok_or_else(|| "reference-missing".to_owned())
+        } else {
+            Err(format!("http-{}", status.as_u16()))
+        };
+    }
     let message = format!(
         "Hi {}, reminder: appointment at {} on {}. Reply STOP to opt out.",
         reminder.first_name, workspace.clinic_name, reminder.appointment_time
@@ -1752,9 +1838,34 @@ pub async fn billing_checkout(
         .into_response());
     }
     let url = format!(
-        "https://api.sociobot.in/api/v1/products/clinic-reminder-proof/checkout?tier=clinic&return_url=https%3A%2F%2Fclinic-reminder-proof.sociobot.in%2Fapp&organization_id={}",
+        "{}?tier=clinic&return_url=https%3A%2F%2Fclinic-reminder-proof.sociobot.in%2Fapp&organization_id={}",
+        billing_product_url(&state, "checkout"),
         workspace.organization_id
     );
+    let probe = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|_| internal().into_response())?
+        .get(&url)
+        .send()
+        .await
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "billing_unavailable",
+                "Sociobot checkout could not be reached. Try again shortly.",
+            )
+            .into_response()
+        })?;
+    if !(probe.status().is_success() || probe.status().is_redirection()) {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "billing_product_unavailable",
+            "The Clinic plan checkout is not available yet. Do not activate reminders until Sociobot checkout is available.",
+        )
+        .into_response());
+    }
     Ok(Json(CheckoutResponse { checkout_url: url }))
 }
 
@@ -1778,7 +1889,7 @@ pub async fn billing_return(
         })?;
     let response = state
         .client
-        .get("https://api.sociobot.in/api/v1/products/clinic-reminder-proof/verify")
+        .get(billing_product_url(&state, "verify"))
         .query(&[("license", token)])
         .send()
         .await
@@ -1832,6 +1943,33 @@ pub async fn billing_return(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{routing::get, routing::post, Router};
+    use tokio::net::TcpListener;
+    use tower::ServiceExt;
+
+    async fn fixture_gateway() -> (String, tokio::task::JoinHandle<()>) {
+        let router = Router::new()
+            .route(
+                "/send/sms",
+                post(|| async { (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":"rejected"}))) }),
+            )
+            .route(
+                "/send/email",
+                post(|| async { Json(serde_json::json!({"id":"email-fixture-42"})) }),
+            )
+            .route(
+                "/products/clinic-reminder-proof/checkout",
+                get(|| async { (StatusCode::SEE_OTHER, [(header::LOCATION, "https://clinic-reminder-proof.sociobot.in/app?license=fixture-license-token-1234")]) }),
+            )
+            .route(
+                "/products/clinic-reminder-proof/verify",
+                get(|| async { Json(serde_json::json!({"valid":true,"reason":"ok"})) }),
+            );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        (format!("http://{address}"), task)
+    }
 
     fn appointment(consents: &[(&str, &str)]) -> ClinicReminder {
         ClinicReminder {
@@ -1983,6 +2121,37 @@ mod tests {
         let _ = fs::remove_dir_all(path);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn managed_storage_files_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
+        let state = ClinicState::for_tests(path.clone()).unwrap();
+        drop(state);
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(path.join("clinic-data.key"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_eq!(
+            fs::metadata(path.join("clinic-data.sqlite3"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        let _ = fs::remove_dir_all(path);
+    }
+
     #[test]
     fn connector_secret_is_not_an_audit_event_or_exported_workspace_field() {
         let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
@@ -2006,6 +2175,145 @@ mod tests {
         let exported = serde_json::to_string(&WorkspaceResponse::from(workspace)).unwrap();
         assert!(!exported.contains("calendar-signing-secret"));
         assert!(!exported.contains("connector.configured"));
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[tokio::test]
+    async fn managed_claim_provider_and_billing_fixtures_complete_observable_outcomes() {
+        let (fixture, fixture_task) = fixture_gateway().await;
+        let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
+        let state =
+            ClinicState::for_tests_with_fixtures(path.clone(), fixture.clone(), fixture.clone())
+                .unwrap();
+        let sms = StoredProvider {
+            id: "sms-provider".to_owned(),
+            channel: "sms".to_owned(),
+            kind: "twilio".to_owned(),
+            account_id: "fixture".to_owned(),
+            encrypted_secret: state.store.encrypt("sms-secret").unwrap(),
+            from: "+15550000001".to_owned(),
+            approved_template_id: "sms-template".to_owned(),
+            encrypted_webhook_secret: state.store.encrypt("sms-webhook").unwrap(),
+        };
+        let email = StoredProvider {
+            id: "email-provider".to_owned(),
+            channel: "email".to_owned(),
+            kind: "resend".to_owned(),
+            account_id: "fixture".to_owned(),
+            encrypted_secret: state.store.encrypt("email-secret").unwrap(),
+            from: "reminders@example.test".to_owned(),
+            approved_template_id: "email-template".to_owned(),
+            encrypted_webhook_secret: state.store.encrypt("email-webhook").unwrap(),
+        };
+        let workspace = ClinicWorkspace {
+            organization_id: "fixture-org".to_owned(),
+            clinic_name: "Fixture Dental".to_owned(),
+            location_name: "Main".to_owned(),
+            timezone: "UTC".to_owned(),
+            provider_configs: vec![sms, email],
+            reminders: vec![appointment(&[("sms", "allowed"), ("email", "allowed")])],
+            subscription: Subscription {
+                tier: Some("clinic".to_owned()),
+                status: Some("active".to_owned()),
+                checked_at: Some(now()),
+                encrypted_entitlement: Some(
+                    state.store.encrypt("fixture-license-token-1234").unwrap(),
+                ),
+            },
+            ..Default::default()
+        };
+        state.store.save("fixture-owner", &workspace).unwrap();
+        let app = crate::app_with_clinic_state("fixture", "../../dist", state.clone());
+        let dispatched = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/clinic/reminders/dispatch")
+                    .header(header::AUTHORIZATION, "Bearer test:fixture-owner")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("idempotency-key", "fixture-dispatch-42")
+                    .body(axum::body::Body::from(r#"{"reminder_id":"r1"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(dispatched.status(), StatusCode::OK);
+        let stored = state.store.get("fixture-owner").unwrap().unwrap();
+        assert_eq!(stored.reminders[0].status, "provider-accepted");
+        assert!(stored.reminders[0]
+            .timeline
+            .iter()
+            .any(
+                |event| event.channel.as_deref() == Some("sms") && event.kind == "provider-failed"
+            ));
+        assert!(stored.reminders[0]
+            .timeline
+            .iter()
+            .any(|event| event.channel.as_deref() == Some("email")
+                && event.provider_reference.as_deref() == Some("email-fixture-42")));
+
+        let receipt = record_receipt(
+            &state,
+            "email-provider",
+            ReceiptInput {
+                provider_reference: "email-fixture-42".to_owned(),
+                provider_event_id: "fixture-receipt-42".to_owned(),
+                outcome: "delivered".to_owned(),
+                occurred_at: now(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(receipt, StatusCode::NO_CONTENT);
+        let delivered = state.store.get("fixture-owner").unwrap().unwrap();
+        assert_eq!(delivered.reminders[0].status, "delivered");
+
+        let checkout = billing_checkout(
+            State(state.clone()),
+            {
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    header::AUTHORIZATION,
+                    HeaderValue::from_static("Bearer test:fixture-owner"),
+                );
+                headers
+            },
+            Json(BillingQuery {
+                tier: "clinic".to_owned(),
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert!(checkout.checkout_url.starts_with(&fixture));
+        let response = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap()
+            .get(&checkout.checkout_url)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::SEE_OTHER);
+        let returned = billing_return(
+            State(state.clone()),
+            {
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    header::AUTHORIZATION,
+                    HeaderValue::from_static("Bearer test:fixture-owner"),
+                );
+                headers
+            },
+            Json(serde_json::json!({"license":"fixture-license-token-1234"})),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(returned.subscription.status.as_deref(), Some("active"));
+
+        fixture_task.abort();
         let _ = fs::remove_dir_all(path);
     }
 }

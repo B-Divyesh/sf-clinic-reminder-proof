@@ -210,7 +210,7 @@ test('@claim:build-identity Health reports the running build identity and metric
   expect(await metrics.text()).toContain('reminder_proof_http_requests_total');
 });
 
-test('@claim:managed-clinic-workflow Clinics use managed data, approved dispatch, proof, CIAM, and Sociobot billing.', async ({ page }) => {
+test('@claim:managed-auth-storage Clinics use protected Entra-managed workspace entry points.', async ({ page }) => {
   await page.goto('/start');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Connect your clinic reminders');
   await expect(page.getByText('Sociobot Microsoft Entra protects each clinic workspace.')).toBeVisible();

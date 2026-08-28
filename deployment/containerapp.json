@@ -1,0 +1,30 @@
+{
+  "properties": {
+    "template": {
+      "containers": [
+        {
+          "name": "app",
+          "volumeMounts": [
+            {
+              "volumeName": "clinic-data",
+              "mountPath": "/data"
+            }
+          ]
+        }
+      ],
+      "volumes": [
+        {
+          "name": "clinic-data",
+          "storageType": "AzureFile",
+          "storageName": "clinic-reminder-proof-data"
+        }
+      ],
+      "scale": {
+        "minReplicas": 1,
+        "maxReplicas": 1,
+        "pollingInterval": 30,
+        "cooldownPeriod": 300
+      }
+    }
+  }
+}

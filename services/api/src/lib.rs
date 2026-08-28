@@ -410,6 +410,20 @@ mod tests {
         }
     }
 
+    #[test]
+    fn rate_limit_state_has_one_production_topology_owner() {
+        let deployment: serde_json::Value =
+            serde_json::from_str(include_str!("../../../deployment/containerapp.json")).unwrap();
+        assert_eq!(
+            deployment["properties"]["template"]["scale"]["maxReplicas"], 1,
+            "the in-process rate limiter is safe only with one production replica"
+        );
+        assert_eq!(
+            deployment["properties"]["template"]["volumes"][0]["storageName"],
+            "clinic-reminder-proof-data"
+        );
+    }
+
     #[tokio::test]
     async fn demo_state_survives_a_different_instance_and_secret() {
         let first_instance = app("first", "../../dist");
