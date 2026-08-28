@@ -7,7 +7,7 @@ COPY packages/design-system ./packages/design-system
 COPY tsconfig.json vitest.config.ts playwright.config.ts ./
 RUN npm run build:web
 
-FROM rust:1.98.0-bookworm AS api-build
+FROM rust:1-slim AS api-build
 ARG BUILD_SHA=dev
 ARG GIT_SHA=dev
 ARG SOURCE_COMMIT=dev

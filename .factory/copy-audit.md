@@ -1,4 +1,4 @@
-# M1 landing copy audit
+# Product copy audit
 
 Status: rendered landing copy checked 2026-08-28.
 
@@ -59,6 +59,23 @@ No sentence exceeds 22 words. None contains: leverage, seamless, effortless, rob
 | Calendar or EMR input | source |
 | Next allowed channel | fallback |
 | Test workspace | demo |
+
+## Real CSV workflow
+
+| Copy | Words | Result |
+| --- | ---: | --- |
+| Audit real reminder results. | 4 | Pass |
+| Import a CSV export from your calendar or messaging provider. | 10 | Pass |
+| Reminder Proof classifies proof and exceptions without sending a message. | 10 | Pass |
+| Before you import: use patient aliases, not names. | 8 | Pass |
+| Data stays in this browser. | 5 | Pass |
+| This tool is not a medical record. | 7 | Pass |
+| Optional fallback columns record the next allowed attempt. | 8 | Pass |
+| Your classified results and staff exceptions will appear here. | 9 | Pass |
+| It does not dispatch patient messages, connect to an EMR, or verify provider signatures. | 14 | Pass |
+| Those steps require clinic credentials, contracts, and privacy review. | 9 | Pass |
+
+No sentence exceeds 22 words. The workflow uses the same terms as the landing page: reminder, provider, fallback, exception, and owner.
 
 ## Catalog description
 

@@ -61,5 +61,61 @@
     "where": "landing pricing section, terms page",
     "test": "npm run test:e2e -- --grep @claim:public-price",
     "sandbox": "fresh public session; assert the landing and terms pages show the same exact price, billing period, per-location unit, and messaging-charge qualifier without requiring sign-in"
+  },
+  {
+    "id": "demo-cookie-lifetime",
+    "claim": "Demo state uses an isolated HttpOnly Secure cookie that expires within 24 hours.",
+    "where": "Privacy page, README, demo contract",
+    "test": "npm run test:e2e -- --grep @claim:demo-cookie-lifetime",
+    "sandbox": "fresh browser context; create a demo workspace and assert the cookie is HttpOnly, Secure, SameSite=Lax, scoped to the demo API, and has Max-Age=86400"
+  },
+  {
+    "id": "demo-replica-continuity",
+    "claim": "Demo changes remain after navigation, reload, and repeated state reads.",
+    "where": "README, demo contract",
+    "test": "npm run test:e2e -- --grep @claim:demo-replica-continuity",
+    "sandbox": "fresh demo; assign the exception, perform 30 state reads, reload the page, and assert the same workspace and owner remain; the Rust regression repeats the read through independently constructed app instances"
+  },
+  {
+    "id": "no-tracking",
+    "claim": "No tracking script or third-party runtime request loads.",
+    "where": "Privacy page, README",
+    "test": "npm run test:e2e -- --grep @claim:no-tracking",
+    "sandbox": "fresh browser context; record every request from landing through one-click demo entry and assert every URL is same-origin"
+  },
+  {
+    "id": "request-protection",
+    "claim": "API writes enforce JSON and 16 KB body limits with structured errors.",
+    "where": "README",
+    "test": "npm run test:e2e -- --grep @claim:request-protection",
+    "sandbox": "fresh demo session; send malformed JSON and a 17 KB body and assert 400/413 JSON problem responses with actionable codes"
+  },
+  {
+    "id": "rate-limit-policy",
+    "claim": "Demo creation is limited by the ingress client address and returns Retry-After.",
+    "where": "demo contract, backend policy",
+    "test": "npm run test:e2e -- --grep @claim:rate-limit-policy",
+    "sandbox": "fresh API client; vary an untrusted first X-Forwarded-For hop while keeping the trusted final hop stable, then assert request six returns 429 JSON with Retry-After"
+  },
+  {
+    "id": "security-headers",
+    "claim": "Responses use the documented browser security and immutable asset cache headers.",
+    "where": "README",
+    "test": "npm run test:e2e -- --grep @claim:security-headers",
+    "sandbox": "fresh public session; assert CSP, HSTS, nosniff, and a one-year immutable cache policy on a hashed production asset"
+  },
+  {
+    "id": "build-identity",
+    "claim": "Health reports the running build identity and metrics are machine-readable.",
+    "where": "README",
+    "test": "npm run test:e2e -- --grep @claim:build-identity",
+    "sandbox": "fresh public session; assert health JSON contains status and build_sha and metrics returns Prometheus text"
+  },
+  {
+    "id": "real-csv-proof",
+    "claim": "Real CSV evidence is classified, assigned, kept locally, and exported.",
+    "where": "Start for real, Privacy page, README",
+    "test": "npm run test:e2e -- --grep @claim:real-csv-proof",
+    "sandbox": "fresh browser context; import delivered, blocked, and fallback rows; assert consent precedence and outcomes, assign the blocked exception, reload for local persistence, and download the proof CSV"
   }
 ]

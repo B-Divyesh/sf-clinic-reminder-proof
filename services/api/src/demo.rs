@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
@@ -10,27 +10,25 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use hmac::{Hmac, Mac};
 use rand::{distr::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 use tokio::sync::Mutex;
 
-type HmacSha256 = Hmac<Sha256>;
 pub const DEMO_COOKIE: &str = "rp_demo";
 const DEMO_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct DemoStore {
-    secret: Arc<Vec<u8>>,
-    workspaces: Arc<Mutex<HashMap<String, Workspace>>>,
     limits: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
 }
 
 #[derive(Clone)]
-struct Workspace {
-    expires_at: Instant,
-    data: DemoData,
+struct DemoSession {
+    workspace_id: String,
+    expires_at: u64,
+    advanced: u8,
+    owner: u8,
+    resolution: u8,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -107,6 +105,7 @@ pub struct ResolveInput {
 pub struct Problem {
     pub code: &'static str,
     pub message: &'static str,
+    pub request_id: &'static str,
 }
 
 #[derive(Debug)]
@@ -114,6 +113,7 @@ pub struct ApiError {
     status: StatusCode,
     code: &'static str,
     message: &'static str,
+    retry_after: Option<u64>,
 }
 
 impl ApiError {
@@ -122,28 +122,47 @@ impl ApiError {
             status,
             code,
             message,
+            retry_after: None,
+        }
+    }
+
+    pub fn rate_limited(retry_after: u64) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            code: "rate_limited",
+            message: "Too many demo actions. Wait, then try again.",
+            retry_after: Some(retry_after.max(1)),
         }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (
+        let mut response = (
             self.status,
             Json(Problem {
                 code: self.code,
                 message: self.message,
+                request_id: "available-in-response-header",
             }),
         )
-            .into_response()
+            .into_response();
+        response
+            .headers_mut()
+            .insert("x-request-id", HeaderValue::from_static("local-request"));
+        if let Some(seconds) = self.retry_after {
+            response.headers_mut().insert(
+                header::RETRY_AFTER,
+                HeaderValue::from_str(&seconds.to_string()).expect("valid retry-after"),
+            );
+        }
+        response
     }
 }
 
 impl DemoStore {
-    pub fn new(secret: Vec<u8>) -> Self {
+    pub fn new() -> Self {
         Self {
-            secret: Arc::new(secret),
-            workspaces: Arc::new(Mutex::new(HashMap::new())),
             limits: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -151,17 +170,9 @@ impl DemoStore {
     pub async fn create(&self, client: &str) -> Result<(String, DemoData), ApiError> {
         self.check_limit(&format!("create:{client}"), 5, Duration::from_secs(60 * 60))
             .await?;
-        self.cleanup().await;
-        let id = random_id();
-        let data = seed(&id);
-        self.workspaces.lock().await.insert(
-            id.clone(),
-            Workspace {
-                expires_at: Instant::now() + DEMO_TTL,
-                data: data.clone(),
-            },
-        );
-        Ok((self.cookie_value(&id), data))
+        let session = DemoSession::new();
+        let data = session.data();
+        Ok((session.encode(), data))
     }
 
     async fn check_limit(&self, key: &str, maximum: usize, span: Duration) -> Result<(), ApiError> {
@@ -170,31 +181,16 @@ impl DemoStore {
         let requests = limits.entry(key.to_owned()).or_default();
         requests.retain(|then| now.duration_since(*then) < span);
         if requests.len() >= maximum {
-            return Err(ApiError::new(
-                StatusCode::TOO_MANY_REQUESTS,
-                "rate_limited",
-                "Too many demo actions. Wait a moment and try again.",
+            let elapsed = now.duration_since(requests[0]);
+            return Err(ApiError::rate_limited(
+                span.saturating_sub(elapsed).as_secs(),
             ));
         }
         requests.push(now);
         Ok(())
     }
 
-    async fn cleanup(&self) {
-        let now = Instant::now();
-        self.workspaces
-            .lock()
-            .await
-            .retain(|_, workspace| workspace.expires_at > now);
-    }
-
-    fn cookie_value(&self, id: &str) -> String {
-        let mut mac = HmacSha256::new_from_slice(&self.secret).expect("valid HMAC key");
-        mac.update(id.as_bytes());
-        format!("{id}.{}", hex::encode(mac.finalize().into_bytes()))
-    }
-
-    fn workspace_id(&self, headers: &HeaderMap) -> Result<String, ApiError> {
+    fn session(&self, headers: &HeaderMap) -> Result<DemoSession, ApiError> {
         let raw = headers
             .get(header::COOKIE)
             .and_then(|value| value.to_str().ok())
@@ -212,74 +208,173 @@ impl DemoStore {
                     "Start a sample clinic first.",
                 )
             })?;
-        let (id, signature) = raw.rsplit_once('.').ok_or_else(|| {
-            ApiError::new(
-                StatusCode::UNAUTHORIZED,
-                "demo_cookie_invalid",
-                "Start a new sample clinic.",
-            )
-        })?;
-        let received = hex::decode(signature).map_err(|_| {
-            ApiError::new(
-                StatusCode::UNAUTHORIZED,
-                "demo_cookie_invalid",
-                "Start a new sample clinic.",
-            )
-        })?;
-        let mut mac = HmacSha256::new_from_slice(&self.secret).expect("valid HMAC key");
-        mac.update(id.as_bytes());
-        mac.verify_slice(&received).map_err(|_| {
-            ApiError::new(
-                StatusCode::UNAUTHORIZED,
-                "demo_cookie_invalid",
-                "Start a new sample clinic.",
-            )
-        })?;
-        Ok(id.to_owned())
+        DemoSession::decode(raw)
     }
 
-    async fn with_workspace<R>(
+    async fn with_workspace(
         &self,
         headers: &HeaderMap,
         write: bool,
-        operation: impl FnOnce(&mut DemoData) -> Result<R, ApiError>,
-    ) -> Result<R, ApiError> {
-        let id = self.workspace_id(headers)?;
+        operation: impl FnOnce(&mut DemoData) -> Result<(), ApiError>,
+    ) -> Result<(String, DemoData), ApiError> {
+        let mut session = self.session(headers)?;
         if write {
-            self.check_limit(&format!("write:{id}"), 30, Duration::from_secs(60))
-                .await?;
-        }
-        let mut workspaces = self.workspaces.lock().await;
-        let workspace = workspaces.get_mut(&id).ok_or_else(|| {
-            ApiError::new(
-                StatusCode::GONE,
-                "demo_expired",
-                "This demo has expired. Start a new sample clinic.",
+            self.check_limit(
+                &format!("write:{}", session.workspace_id),
+                30,
+                Duration::from_secs(60),
             )
-        })?;
-        if workspace.expires_at <= Instant::now() {
-            workspaces.remove(&id);
+            .await?;
+        }
+        if session.expires_at <= epoch_seconds() {
             return Err(ApiError::new(
                 StatusCode::GONE,
                 "demo_expired",
                 "This demo has expired. Start a new sample clinic.",
             ));
         }
-        operation(&mut workspace.data)
+        let mut data = session.data();
+        operation(&mut data)?;
+        session.capture(&data);
+        Ok((session.encode(), data))
+    }
+}
+
+impl DemoSession {
+    fn new() -> Self {
+        Self {
+            workspace_id: random_id(),
+            expires_at: epoch_seconds() + DEMO_TTL.as_secs(),
+            advanced: 0,
+            owner: 0,
+            resolution: 0,
+        }
     }
 
-    async fn delete(&self, headers: &HeaderMap) -> Result<(), ApiError> {
-        let id = self.workspace_id(headers)?;
-        self.workspaces.lock().await.remove(&id);
-        Ok(())
+    fn encode(&self) -> String {
+        format!(
+            "1:{}:{}:{}:{}:{}",
+            self.workspace_id, self.expires_at, self.advanced, self.owner, self.resolution
+        )
     }
+
+    fn decode(value: &str) -> Result<Self, ApiError> {
+        let fields = value.split(':').collect::<Vec<_>>();
+        let valid_id = fields.get(1).is_some_and(|id| {
+            id.len() == 32
+                && id
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric())
+        });
+        if fields.len() != 6 || fields[0] != "1" || !valid_id {
+            return Err(invalid_cookie());
+        }
+        let session = Self {
+            workspace_id: fields[1].to_owned(),
+            expires_at: fields[2].parse().map_err(|_| invalid_cookie())?,
+            advanced: fields[3].parse().map_err(|_| invalid_cookie())?,
+            owner: fields[4].parse().map_err(|_| invalid_cookie())?,
+            resolution: fields[5].parse().map_err(|_| invalid_cookie())?,
+        };
+        if session.advanced > 3 || session.owner > 2 || session.resolution > 4 {
+            return Err(invalid_cookie());
+        }
+        Ok(session)
+    }
+
+    fn data(&self) -> DemoData {
+        let mut data = seed(&self.workspace_id);
+        if self.advanced & 1 != 0 {
+            advance_mina(&mut data);
+        }
+        if self.advanced & 2 != 0 {
+            advance_jordan(&mut data);
+        }
+        if let Some(exception) = data
+            .reminders
+            .iter_mut()
+            .find_map(|item| item.exception.as_mut())
+        {
+            exception.owner = match self.owner {
+                1 => Some("Sam Rivera".to_owned()),
+                2 => Some("Avery Chen".to_owned()),
+                _ => None,
+            };
+            if let Some(resolution) = resolution_name(self.resolution) {
+                exception.state = "resolved";
+                exception.resolution = Some(resolution.to_owned());
+                exception.undo_available = true;
+            } else if exception.owner.is_some() {
+                exception.state = "assigned";
+            }
+        }
+        data
+    }
+
+    fn capture(&mut self, data: &DemoData) {
+        self.advanced = u8::from(
+            data.reminders
+                .iter()
+                .any(|item| item.id == "mina" && item.state == "delivered"),
+        ) | (u8::from(
+            data.reminders
+                .iter()
+                .any(|item| item.id == "jordan" && item.state == "delivered"),
+        ) << 1);
+        if let Some(exception) = data
+            .reminders
+            .iter()
+            .find_map(|item| item.exception.as_ref())
+        {
+            self.owner = match exception.owner.as_deref() {
+                Some("Sam Rivera") => 1,
+                Some("Avery Chen") => 2,
+                _ => 0,
+            };
+            self.resolution = match exception.resolution.as_deref() {
+                Some("Called patient") => 1,
+                Some("Corrected contact") => 2,
+                Some("Appointment cancelled") => 3,
+                Some("No safe channel") => 4,
+                _ => 0,
+            };
+        }
+    }
+}
+
+fn invalid_cookie() -> ApiError {
+    ApiError::new(
+        StatusCode::UNAUTHORIZED,
+        "demo_cookie_invalid",
+        "Start a new sample clinic.",
+    )
+}
+
+fn epoch_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn resolution_name(code: u8) -> Option<&'static str> {
+    [
+        None,
+        Some("Called patient"),
+        Some("Corrected contact"),
+        Some("Appointment cancelled"),
+        Some("No safe channel"),
+    ]
+    .get(code as usize)
+    .copied()
+    .flatten()
 }
 
 pub fn client_ip(headers: &HeaderMap) -> String {
     headers
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
+        .and_then(|value| value.split(',').next_back())
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("local")
@@ -291,34 +386,23 @@ pub async fn create_workspace(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let (cookie, data) = store.create(&client_ip(&headers)).await?;
-    let mut response = Json(DemoEnvelope { demo: data }).into_response();
-    let set_cookie = format!(
-        "{DEMO_COOKIE}={cookie}; Path=/api/v1/demo; HttpOnly; SameSite=Lax; Max-Age={}",
-        DEMO_TTL.as_secs()
-    );
-    response.headers_mut().insert(
-        header::SET_COOKIE,
-        HeaderValue::from_str(&set_cookie).expect("safe cookie value"),
-    );
-    Ok(response)
+    Ok(demo_response(cookie, data))
 }
 
 pub async fn state(
     State(store): State<DemoStore>,
     headers: HeaderMap,
-) -> Result<Json<DemoEnvelope>, ApiError> {
-    let data = store
-        .with_workspace(&headers, false, |data| Ok(data.clone()))
-        .await?;
-    Ok(Json(DemoEnvelope { demo: data }))
+) -> Result<Response, ApiError> {
+    let (cookie, data) = store.with_workspace(&headers, false, |_| Ok(())).await?;
+    Ok(demo_response(cookie, data))
 }
 
 pub async fn advance(
     State(store): State<DemoStore>,
     headers: HeaderMap,
     Path(reminder_id): Path<String>,
-) -> Result<Json<DemoEnvelope>, ApiError> {
-    let data = store
+) -> Result<Response, ApiError> {
+    let (cookie, data) = store
         .with_workspace(&headers, true, |data| {
             let reminder = data
                 .reminders
@@ -364,17 +448,17 @@ pub async fn advance(
                 }
                 _ => {}
             }
-            Ok(data.clone())
+            Ok(())
         })
         .await?;
-    Ok(Json(DemoEnvelope { demo: data }))
+    Ok(demo_response(cookie, data))
 }
 
 pub async fn advance_due(
     State(store): State<DemoStore>,
     headers: HeaderMap,
-) -> Result<Json<DemoEnvelope>, ApiError> {
-    let data = store
+) -> Result<Response, ApiError> {
+    let (cookie, data) = store
         .with_workspace(&headers, true, |data| {
             for reminder in &mut data.reminders {
                 if reminder.id == "mina" && reminder.state == "scheduled" {
@@ -408,10 +492,10 @@ pub async fn advance_due(
                     ));
                 }
             }
-            Ok(data.clone())
+            Ok(())
         })
         .await?;
-    Ok(Json(DemoEnvelope { demo: data }))
+    Ok(demo_response(cookie, data))
 }
 
 pub async fn assign_exception(
@@ -419,7 +503,7 @@ pub async fn assign_exception(
     headers: HeaderMap,
     Path(exception_id): Path<String>,
     Json(input): Json<AssignInput>,
-) -> Result<Json<DemoEnvelope>, ApiError> {
+) -> Result<Response, ApiError> {
     if !["Sam Rivera", "Avery Chen"].contains(&input.owner.as_str()) {
         return Err(ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -427,15 +511,15 @@ pub async fn assign_exception(
             "Choose a staff member in this sample clinic.",
         ));
     }
-    let data = store
+    let (cookie, data) = store
         .with_workspace(&headers, true, |data| {
             let exception = find_exception(data, &exception_id)?;
             exception.owner = Some(input.owner);
             exception.state = "assigned";
-            Ok(data.clone())
+            Ok(())
         })
         .await?;
-    Ok(Json(DemoEnvelope { demo: data }))
+    Ok(demo_response(cookie, data))
 }
 
 pub async fn resolve_exception(
@@ -443,7 +527,7 @@ pub async fn resolve_exception(
     headers: HeaderMap,
     Path(exception_id): Path<String>,
     Json(input): Json<ResolveInput>,
-) -> Result<Json<DemoEnvelope>, ApiError> {
+) -> Result<Response, ApiError> {
     if ![
         "Called patient",
         "Corrected contact",
@@ -458,7 +542,7 @@ pub async fn resolve_exception(
             "Choose a safe sample resolution.",
         ));
     }
-    let data = store
+    let (cookie, data) = store
         .with_workspace(&headers, true, |data| {
             let exception = find_exception(data, &exception_id)?;
             if exception.owner.is_none() {
@@ -471,18 +555,18 @@ pub async fn resolve_exception(
             exception.state = "resolved";
             exception.resolution = Some(input.resolution);
             exception.undo_available = true;
-            Ok(data.clone())
+            Ok(())
         })
         .await?;
-    Ok(Json(DemoEnvelope { demo: data }))
+    Ok(demo_response(cookie, data))
 }
 
 pub async fn undo_exception(
     State(store): State<DemoStore>,
     headers: HeaderMap,
     Path(exception_id): Path<String>,
-) -> Result<Json<DemoEnvelope>, ApiError> {
-    let data = store
+) -> Result<Response, ApiError> {
+    let (cookie, data) = store
         .with_workspace(&headers, true, |data| {
             let exception = find_exception(data, &exception_id)?;
             if exception.state != "resolved" || !exception.undo_available {
@@ -495,28 +579,32 @@ pub async fn undo_exception(
             exception.state = "assigned";
             exception.resolution = None;
             exception.undo_available = false;
-            Ok(data.clone())
+            Ok(())
         })
         .await?;
-    Ok(Json(DemoEnvelope { demo: data }))
+    Ok(demo_response(cookie, data))
 }
 
 pub async fn reset_workspace(
     State(store): State<DemoStore>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    store.delete(&headers).await?;
+    let _ = store.session(&headers)?;
     let (cookie, data) = store.create(&client_ip(&headers)).await?;
+    Ok(demo_response(cookie, data))
+}
+
+fn demo_response(cookie: String, data: DemoData) -> Response {
     let mut response = Json(DemoEnvelope { demo: data }).into_response();
     let set_cookie = format!(
-        "{DEMO_COOKIE}={cookie}; Path=/api/v1/demo; HttpOnly; SameSite=Lax; Max-Age={}",
+        "{DEMO_COOKIE}={cookie}; Path=/api/v1/demo; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
         DEMO_TTL.as_secs()
     );
     response.headers_mut().insert(
         header::SET_COOKIE,
         HeaderValue::from_str(&set_cookie).expect("safe cookie value"),
     );
-    Ok(response)
+    response
 }
 
 fn find_exception<'a>(data: &'a mut DemoData, id: &str) -> Result<&'a mut DemoException, ApiError> {
@@ -554,6 +642,50 @@ fn event(
         provider_result,
         outcome,
         simulated: true,
+    }
+}
+
+fn advance_mina(data: &mut DemoData) {
+    if let Some(reminder) = data
+        .reminders
+        .iter_mut()
+        .find(|reminder| reminder.id == "mina" && reminder.state == "scheduled")
+    {
+        reminder.state = "delivered";
+        reminder.events.push(event(
+            "08:01",
+            "attempt",
+            "SMS attempt accepted by the simulated provider.",
+            Some("SMS"),
+            Some("DELIVERED-200"),
+            "Delivered",
+        ));
+    }
+}
+
+fn advance_jordan(data: &mut DemoData) {
+    if let Some(reminder) = data
+        .reminders
+        .iter_mut()
+        .find(|reminder| reminder.id == "jordan" && reminder.state == "scheduled")
+    {
+        reminder.state = "delivered";
+        reminder.events.push(event(
+            "09:31",
+            "attempt",
+            "Approved WhatsApp template rejected by the simulated provider.",
+            Some("WhatsApp"),
+            Some("TEMPLATE_REJECTED"),
+            "Failed",
+        ));
+        reminder.events.push(event(
+            "09:32",
+            "attempt",
+            "Email fallback accepted by the simulated provider.",
+            Some("Email"),
+            Some("DELIVERED-200"),
+            "Delivered",
+        ));
     }
 }
 
@@ -735,7 +867,7 @@ mod tests {
 
     #[tokio::test]
     async fn workspace_data_is_isolated_and_reset_reseeds() {
-        let store = DemoStore::new(vec![7; 32]);
+        let store = DemoStore::new();
         let (first_cookie, first) = store.create("one").await.unwrap();
         let (_, second) = store.create("two").await.unwrap();
         assert_ne!(first.workspace_id, second.workspace_id);
@@ -743,23 +875,24 @@ mod tests {
         let changed = store
             .with_workspace(&headers, true, |data| {
                 data.reminders[0].state = "delivered";
-                Ok(data.clone())
+                Ok(())
             })
             .await
             .unwrap();
-        assert_eq!(changed.reminders[0].state, "delivered");
+        assert_eq!(changed.1.reminders[0].state, "delivered");
         assert_eq!(second.reminders[0].state, "scheduled");
     }
 
     #[tokio::test]
     async fn consent_block_never_creates_provider_attempt() {
-        let store = DemoStore::new(vec![7; 32]);
+        let store = DemoStore::new();
         let (cookie, _) = store.create("one").await.unwrap();
         let data = store
-            .with_workspace(&cookie_headers(&cookie), false, |data| Ok(data.clone()))
+            .with_workspace(&cookie_headers(&cookie), false, |_| Ok(()))
             .await
             .unwrap();
         let sofia = data
+            .1
             .reminders
             .iter()
             .find(|reminder| reminder.id == "sofia")
@@ -770,7 +903,7 @@ mod tests {
 
     #[tokio::test]
     async fn workspace_creation_limit_returns_429() {
-        let store = DemoStore::new(vec![7; 32]);
+        let store = DemoStore::new();
         for _ in 0..5 {
             store.create("limit").await.unwrap();
         }

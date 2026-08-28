@@ -7,8 +7,8 @@ Status: implemented in M1.
 - Public entry: `https://clinic-reminder-proof.sociobot.in/?demo=1`
 - Stable route: `https://clinic-reminder-proof.sociobot.in/demo`
 - No account, card, connector, or provider credential is required.
-- `POST /api/v1/demo/workspaces` creates a cryptographically random workspace with a 24-hour TTL and a signed, HttpOnly, SameSite=Lax cookie scoped to the demo API.
-- Every demo read and write includes the resolved workspace ID in the server repository boundary. Production tenant repositories are not constructed for a demo request.
+- `POST /api/v1/demo/workspaces` creates a random workspace with a 24-hour TTL in an HttpOnly, Secure, SameSite=Lax cookie scoped to the demo API.
+- The compact cookie carries only a random ID and sample-state codes. It contains no clinic or patient data. Replica changes and process restarts cannot lose it.
 - No demo operation can dispatch a message, call a provider, begin checkout, or read authenticated tenant state.
 
 ## Seed data
@@ -41,7 +41,7 @@ These labels are operational examples, not clinical records. The seed contains n
 
 ## Storage namespaces
 
-- Server: an in-memory `demo_workspaces` repository keyed by a random workspace ID, TTL 24 hours. It is intentionally not durable; container restart removes all samples.
+- Server: no demo workspace data is retained. Each request reconstructs the canonical fictional sample from compact cookie state.
 - Browser preferences: session keys are prefixed `demo:clinic-reminder-proof:<workspace-id>:` only. The cookie is HttpOnly and is not readable by page code.
 - Authenticated product data will use no `demo:` namespace and is never queried while the demo banner is shown.
 

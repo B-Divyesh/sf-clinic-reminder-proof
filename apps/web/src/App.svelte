@@ -36,6 +36,18 @@
     staff: { id: string; name: string }[];
     reminders: Reminder[];
   };
+  type RealReminder = {
+    id: string;
+    patient_alias: string;
+    appointment_time: string;
+    primary_channel: string;
+    consent: string;
+    primary_result: string;
+    fallback_channel: string;
+    fallback_consent: string;
+    fallback_result: string;
+    owner: string;
+  };
 
   let pagePath = typeof window === 'undefined' ? '/' : window.location.pathname;
   let demo: DemoData | null = null;
@@ -45,6 +57,9 @@
   let error = '';
   let notice = '';
   let announced = '';
+  let realReminders: RealReminder[] = [];
+  let importError = '';
+  const realStorageKey = 'real:clinic-reminder-proof:ledger';
 
   const description =
     'Track appointment reminder attempts, delivery evidence, safe fallbacks, and staff-owned exceptions without replacing your clinic calendar.';
@@ -56,6 +71,7 @@
     if (path.startsWith('/demo/reminders/')) return { title: 'Reminder evidence — Reminder Proof', heading: 'Reminder evidence' };
     if (path === '/privacy') return { title: 'Privacy — Reminder Proof', heading: 'How Reminder Proof handles data' };
     if (path === '/terms') return { title: 'Terms — Reminder Proof', heading: 'Terms for Reminder Proof' };
+    if (path === '/start') return { title: 'Import reminder evidence — Reminder Proof', heading: 'Audit real reminder results' };
     return { title: 'Page not found — Reminder Proof', heading: 'This page has no ledger entry' };
   }
 
@@ -68,6 +84,11 @@
     : null;
 
   onMount(() => {
+    try {
+      realReminders = JSON.parse(localStorage.getItem(realStorageKey) ?? '[]') as RealReminder[];
+    } catch {
+      localStorage.removeItem(realStorageKey);
+    }
     if (window.location.pathname === '/' && new URLSearchParams(window.location.search).get('demo') === '1') {
       navigate('/demo', true);
     } else if (isDemoPath()) {
@@ -117,6 +138,12 @@
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
     event.preventDefault();
     navigate(path);
+  }
+
+  async function skipToMain(event: MouseEvent) {
+    event.preventDefault();
+    await tick();
+    document.getElementById('main')?.focus();
   }
 
   async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -203,7 +230,7 @@
   }
 
   function startForReal() {
-    notice = 'Accounts arrive in the next milestone. This sample clinic has no link to real clinic data.';
+    navigate('/start');
   }
 
   function statusLabel(state: string) {
@@ -215,6 +242,108 @@
     if (state === 'exception') return '◆';
     if (state === 'cancelled') return '■';
     return '•';
+  }
+
+  function parseCsv(text: string): string[][] {
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let field = '';
+    let quoted = false;
+    for (let index = 0; index < text.length; index += 1) {
+      const character = text[index];
+      if (character === '"' && quoted && text[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else if (character === '"') quoted = !quoted;
+      else if (character === ',' && !quoted) {
+        row.push(field.trim());
+        field = '';
+      } else if ((character === '\n' || character === '\r') && !quoted) {
+        if (character === '\r' && text[index + 1] === '\n') index += 1;
+        row.push(field.trim());
+        if (row.some(Boolean)) rows.push(row);
+        row = [];
+        field = '';
+      } else field += character;
+    }
+    row.push(field.trim());
+    if (row.some(Boolean)) rows.push(row);
+    return rows;
+  }
+
+  async function importEvidence(event: Event) {
+    importError = '';
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (file.size > 1_000_000) {
+      importError = 'That file is over 1 MB. Export a smaller date range and try again.';
+      input.value = '';
+      return;
+    }
+    const rows = parseCsv(await file.text());
+    const headers = rows.shift()?.map((header) => header.toLowerCase()) ?? [];
+    const required = ['reminder_id', 'patient_alias', 'appointment_time', 'primary_channel', 'consent', 'primary_result'];
+    const missing = required.filter((header) => !headers.includes(header));
+    if (missing.length > 0) {
+      importError = `The CSV is missing: ${missing.join(', ')}.`;
+      input.value = '';
+      return;
+    }
+    const value = (row: string[], name: string) => row[headers.indexOf(name)]?.trim() ?? '';
+    const imported = rows.map((row) => ({
+      id: value(row, 'reminder_id'),
+      patient_alias: value(row, 'patient_alias'),
+      appointment_time: value(row, 'appointment_time'),
+      primary_channel: value(row, 'primary_channel'),
+      consent: value(row, 'consent').toLowerCase(),
+      primary_result: value(row, 'primary_result').toLowerCase(),
+      fallback_channel: value(row, 'fallback_channel'),
+      fallback_consent: value(row, 'fallback_consent').toLowerCase(),
+      fallback_result: value(row, 'fallback_result').toLowerCase(),
+      owner: ''
+    })).filter((item) => item.id && item.patient_alias && item.appointment_time);
+    if (imported.length === 0) {
+      importError = 'No complete reminder rows were found. Check the template and try again.';
+      input.value = '';
+      return;
+    }
+    realReminders = imported;
+    localStorage.setItem(realStorageKey, JSON.stringify(realReminders));
+    notice = `${imported.length} reminder results imported.`;
+    input.value = '';
+  }
+
+  function realOutcome(item: RealReminder) {
+    if (item.consent !== 'allowed') return 'Blocked before dispatch';
+    if (['delivered', 'replied'].includes(item.primary_result)) return 'Delivered';
+    if (item.fallback_channel && item.fallback_consent === 'allowed' && ['delivered', 'replied'].includes(item.fallback_result)) return 'Delivered by fallback';
+    if (['queued', 'accepted', 'pending'].includes(item.primary_result)) return 'Awaiting delivery proof';
+    return 'Needs staff action';
+  }
+
+  function setRealOwner(index: number, owner: string) {
+    realReminders[index].owner = owner.trim();
+    realReminders = [...realReminders];
+    localStorage.setItem(realStorageKey, JSON.stringify(realReminders));
+  }
+
+  function exportRealLedger() {
+    const escaped = (value: string) => `"${value.replaceAll('"', '""')}"`;
+    const header = 'reminder_id,patient_alias,appointment_time,outcome,owner';
+    const rows = realReminders.map((item) => [item.id, item.patient_alias, item.appointment_time, realOutcome(item), item.owner].map(escaped).join(','));
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([[header, ...rows].join('\n')], { type: 'text/csv' }));
+    link.download = 'reminder-proof-ledger.csv';
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
+  function clearRealLedger() {
+    if (!window.confirm('Delete the imported ledger from this browser?')) return;
+    realReminders = [];
+    localStorage.removeItem(realStorageKey);
+    notice = 'Imported reminder data was deleted from this browser.';
   }
 </script>
 
@@ -233,7 +362,7 @@
   <meta name="twitter:image" content={`${origin}/social-card.svg`} />
 </svelte:head>
 
-<a class="skip-link" href="#main">Skip to main content</a>
+<a class="skip-link" href="#main" onclick={skipToMain}>Skip to main content</a>
 <div class="route-announcer" aria-live="polite">{announced}</div>
 
 <header class="site-header">
@@ -248,7 +377,7 @@
   </nav>
 </header>
 
-<main id="main">
+<main id="main" tabindex="-1">
   {#if pagePath === '/'}
     <section class="landing-hero" aria-labelledby="page-title">
       <div class="hero-copy">
@@ -341,7 +470,7 @@
             <article class="exception-row">
               <div><h3>{reminder.appointment_time} · {reminder.patient_alias}</h3><p>{task.reason}</p><p class="next-action">{task.next_action}</p></div>
               <div class="exception-controls">
-                <label>Owner<select aria-label={`Owner for ${reminder.patient_alias}`} value={task.owner ?? ''} disabled={busy || offline} onchange={(event) => updateDemo(`/api/v1/demo/exceptions/${task.id}/assign`, { method: 'POST', body: JSON.stringify({ owner: (event.currentTarget as HTMLSelectElement).value }) }, 'Owner saved.') }><option value="" disabled>Choose owner</option>{#each demo.staff as staff}<option value={staff.name}>{staff.name}</option>{/each}</select></label>
+                <label>Owner<select aria-label={`Owner for ${reminder.patient_alias}`} value={task.owner ?? ''} disabled={busy || loading || offline} onchange={(event) => updateDemo(`/api/v1/demo/exceptions/${task.id}/assign`, { method: 'POST', body: JSON.stringify({ owner: (event.currentTarget as HTMLSelectElement).value }) }, 'Owner saved.') }><option value="" disabled>Choose owner</option>{#each demo.staff as staff}<option value={staff.name}>{staff.name}</option>{/each}</select></label>
                 {#if task.state !== 'resolved'}
                   <button class="button secondary" disabled={!task.owner || busy || offline} onclick={() => updateDemo(`/api/v1/demo/exceptions/${task.id}/resolve`, { method: 'POST', body: JSON.stringify({ resolution: 'Called patient' }) }, 'Exception resolved as Called patient.')}>Resolve as Called patient</button>
                 {:else}
@@ -372,8 +501,38 @@
         {#if selectedReminder.exception}<section class="detail-exception" aria-labelledby="detail-exception-title"><h2 id="detail-exception-title">Exception</h2><p>{selectedReminder.exception.reason}</p><p>{selectedReminder.exception.next_action}</p><a href="/demo" onclick={(event) => follow(event, '/demo')}>Manage this exception in the sample queue</a></section>{/if}
       {/if}
     </section>
+  {:else if pagePath === '/start'}
+    <section class="app-page real-page" aria-labelledby="page-title">
+      <div class="page-heading"><div><p class="eyebrow">Real data · local browser</p><h1 id="page-title" tabindex="-1">Audit real reminder results</h1><p>Import a CSV export from your calendar or messaging provider. Reminder Proof classifies proof and exceptions without sending a message.</p></div></div>
+      <div class="state-notice warning"><strong>Before you import:</strong> use patient aliases, not names. Data stays in this browser. This tool is not a medical record.</div>
+      <section class="import-panel" aria-labelledby="import-title">
+        <div><h2 id="import-title">Import reminder evidence</h2><p>Required columns: reminder_id, patient_alias, appointment_time, primary_channel, consent, primary_result. Optional fallback columns record the next allowed attempt.</p></div>
+        <label class="file-button">Choose CSV file<input type="file" accept=".csv,text/csv" onchange={importEvidence} /></label>
+      </section>
+      {#if importError}<div class="state-notice danger" role="alert">{importError}</div>{/if}
+      {#if notice}<div class="state-notice success" role="status">{notice}</div>{/if}
+      {#if realReminders.length === 0}
+        <div class="state-panel"><h2>No reminder evidence imported</h2><p>Your classified results and staff exceptions will appear here.</p></div>
+      {:else}
+        <div class="real-toolbar"><p><strong>{realReminders.length}</strong> imported reminders · <strong>{realReminders.filter((item) => realOutcome(item).includes('Delivered')).length}</strong> delivered · <strong>{realReminders.filter((item) => !realOutcome(item).includes('Delivered')).length}</strong> need review</p><div><button class="button secondary" onclick={exportRealLedger}>Export proof CSV</button><button class="text-button" onclick={clearRealLedger}>Delete imported data</button></div></div>
+        <section class="ledger-panel" aria-labelledby="real-ledger-title">
+          <div class="panel-heading"><div><p class="eyebrow">Imported provider evidence</p><h2 id="real-ledger-title">Reminder proof ledger</h2></div></div>
+          <ul class="real-list">
+            {#each realReminders as item, index}
+              <li>
+                <div><strong>{item.appointment_time} · {item.patient_alias}</strong><span>{item.id}</span></div>
+                <dl><div><dt>Primary</dt><dd>{item.primary_channel} · {item.consent || 'unknown'} · {item.primary_result || 'unknown'}</dd></div>{#if item.fallback_channel}<div><dt>Fallback</dt><dd>{item.fallback_channel} · {item.fallback_consent || 'unknown'} · {item.fallback_result || 'unknown'}</dd></div>{/if}</dl>
+                <strong class:real-alert={!realOutcome(item).includes('Delivered')}>{realOutcome(item)}</strong>
+                {#if !realOutcome(item).includes('Delivered')}<label>Exception owner<input aria-label={`Exception owner for ${item.patient_alias}`} value={item.owner} onblur={(event) => setRealOwner(index, event.currentTarget.value)} /></label>{/if}
+              </li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
+      <section class="boundary-section compact" aria-labelledby="real-boundary"><div><h2 id="real-boundary">What this real workflow does not do</h2></div><p>It does not dispatch patient messages, connect to an EMR, or verify provider signatures. Those steps require clinic credentials, contracts, and privacy review.</p></section>
+    </section>
   {:else if pagePath === '/privacy'}
-    <section class="legal-page" aria-labelledby="page-title"><p class="eyebrow">Privacy</p><h1 id="page-title" tabindex="-1">How Reminder Proof handles data</h1><p class="lede">The M1 demo creates a random, short-lived sample workspace. It contains fictional aliases and simulated provider events.</p><h2>What the demo stores</h2><p>A signed browser cookie reaches only its own sample workspace. The workspace expires within 24 hours. Reset demo replaces it with a new sample.</p><h2>What the demo does not do</h2><p>It does not use an account, clinic connector, payment service, messaging provider, clinical note, diagnosis, contact destination, or tracking script.</p><h2>Future clinic data</h2><p>Accounts, durable clinic data, exports, and subscriptions are planned for a later milestone. This page will be updated before those features ship.</p></section>
+    <section class="legal-page" aria-labelledby="page-title"><p class="eyebrow">Privacy</p><h1 id="page-title" tabindex="-1">How Reminder Proof handles data</h1><p class="lede">The demo creates a random, short-lived sample workspace. It contains fictional aliases and simulated provider events.</p><h2>What the demo stores</h2><p>An HttpOnly, Secure browser cookie holds compact sample state. It expires within 24 hours. Reset demo replaces it with a new sample.</p><h2>Real CSV imports</h2><p>The real evidence tool stores imported rows only in this browser. Delete imported data removes that local copy. Use aliases and do not import clinical notes.</p><h2>What the site does not do</h2><p>It does not load a tracking script. The demo does not call a payment service, messaging provider, or clinic connector.</p><h2>Current limit</h2><p>Accounts, managed clinic storage, live provider sending, and subscriptions are not available. Do not use the service as a medical record.</p></section>
   {:else if pagePath === '/terms'}
     <section class="legal-page" aria-labelledby="page-title"><p class="eyebrow">Terms</p><h1 id="page-title" tabindex="-1">Terms for Reminder Proof</h1><p class="lede">Reminder Proof is a delivery-evidence layer for clinic reminder operations. It is not a medical system and does not provide medical advice.</p><h2>Sample clinic</h2><p>The public demo uses fictional sample data and simulated provider outcomes. Do not enter real patient or clinic information into it.</p><h2>Planned monthly plan</h2><p>The Clinic plan is $79 per location each month, plus published messaging charges. Billing is unavailable in M1. Sociobot and Dodo will be the merchant flow after accounts ship.</p><h2>Clinic responsibilities</h2><p>Clinic operators remain responsible for consent, lawful messaging, source records, and their local privacy obligations.</p></section>
   {:else}

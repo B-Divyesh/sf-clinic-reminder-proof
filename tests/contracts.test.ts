@@ -66,7 +66,7 @@ describe('planning scaffold contracts', () => {
     }
   });
 
-  test('M1 claims are unique and point to exact claim tags', async () => {
+  test('product claims are unique and point to exact claim tags', async () => {
     const claims = JSON.parse(await readRepositoryFile('.factory/claims.json')) as Array<{
       id: string;
       claim: string;
@@ -74,7 +74,7 @@ describe('planning scaffold contracts', () => {
       sandbox: string;
     }>;
 
-    expect(claims).toHaveLength(9);
+    expect(claims.length).toBeGreaterThanOrEqual(9);
     expect(new Set(claims.map(({ id }) => id)).size).toBe(claims.length);
     for (const claim of claims) {
       expect(claim.claim.length).toBeGreaterThan(10);
