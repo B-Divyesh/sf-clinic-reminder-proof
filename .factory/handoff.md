@@ -70,6 +70,6 @@ Use `/?demo=1` for the isolated sample. Use `/start` for Entra sign-in, then `/a
 
 ## Deployment and operator action
 
-Deploy class remains **container** using `Dockerfile`, port 8080, to `https://clinic-reminder-proof.sociobot.in`. Azure revision health and the public hostname both returned `{"status":"ok","build_sha":"062e87e6d9e844f41d387f8a65f976d0287e9a79"}` after deployment. The public `verify-url.sh` check passed in 697 ms with no console errors and the expected title/lang/h1/main/alt/button evidence.
+Deploy class remains **container** using `Dockerfile`, port 8080, to `https://clinic-reminder-proof.sociobot.in`. The deployed product revision is `ee9bf6366d68f852c3ee65dfde3d52b1f594975a`; Azure ingress and the public hostname both returned that exact `build_sha`. The final public `verify-url.sh` check passed in 644 ms with no console errors and the expected title/lang/h1/main/alt/button evidence.
 
 Before a production clinic can finish Entra login, the factory must confirm that `https://clinic-reminder-proof.sociobot.in/auth/callback` is registered on the shared SPA application. The factory must also register the monthly `clinic-reminder-proof` Sociobot subscription product and ensure the container has persistent `/data` storage before accepting real clinic records. These are deployment/operator configuration, not values stored in the repository. Provider credentials, webhook secrets, BAA/DPA review, approved templates, jurisdiction messaging rules, and patient consent remain each clinic’s responsibility.
