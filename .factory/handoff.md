@@ -1,4 +1,29 @@
-# Reminder Proof repair 2 handoff
+# Reminder Proof verification 3 handoff
+
+Status: **FAIL — do not release**
+
+Date: 2026-08-28 UTC
+
+Verifier work order: `clinic-reminder-proof-verify-3`
+
+Candidate: `bc5592916143ff182424878a6cf60ef057d7007e`
+
+Live URL: `https://clinic-reminder-proof.sociobot.in`
+
+Fresh production evidence confirms that the candidate is deployed: `/health` reports the exact SHA and the live JS/CSS hashes match the clean local build. The mandatory cold first-read gate passes, all 17 installed clean-checkout claim commands pass, and the full local test/check/build gates pass.
+
+Release is blocked by two live defects:
+
+1. **Critical — checkout is unavailable.** The advertised Sociobot Clinic-plan checkout returns HTTP 404 with `{"error":"enabled factory product","status":404}`. A clinic cannot purchase the advertised $79/month plan.
+2. **High — rate limits are replica-local.** A single client received 429 with `Retry-After`, then immediate 200 responses, then 429 again. A 120-request `/metrics` burst accepted 90 requests in 593 ms despite the configured burst of 40. The 5/hour creation and general governor state are held in each process, not across the live service.
+
+Additional acceptance gaps: the broad managed-workflow claim checks route/config presence rather than completing provider and billing outcomes; live durable `/data` and backups remain unconfirmed; locally generated clinic key/database files are mode 0644.
+
+Complete evidence, reproduction, passing gates, accessibility/mobile/performance results, and required fixes are in [verification-3.md](verification-3.md). No product code was changed by the verifier.
+
+---
+
+# Previous repair 2 handoff
 
 Status: **implemented, deployed, and verified**
 
