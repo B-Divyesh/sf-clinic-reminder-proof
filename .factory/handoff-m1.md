@@ -20,6 +20,7 @@ Run from a clean install with `npm ci`:
 | Check | Result |
 | --- | --- |
 | `npm test` | Pass — 6 Vitest contracts, 6 Rust tests, 12 Chromium tests |
+| Fresh clone | Pass — shallow clone of pushed `main` ran `npm ci`, `npm test`, and `npm run build`; produced `dist/index.html` and the release API binary |
 | M1 claims | Pass — all 9 `@claim:*` Playwright tests from `?demo=1` |
 | Browser quality | Pass — axe zero serious/critical findings for `/`, `/demo`, `/privacy`, `/terms`, `/missing`; local link crawl and console-error check pass |
 | `npm run check` | Pass — Svelte 0 errors / 0 warnings, rustfmt, clippy warnings denied |
