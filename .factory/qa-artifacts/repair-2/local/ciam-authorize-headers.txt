@@ -1,0 +1,29 @@
+HTTP/1.1 200 OK
+Cache-Control: no-store, no-cache
+Pragma: no-cache
+Content-Length: 38372
+Content-Type: text/html; charset=utf-8
+Expires: -1
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Cross-Origin-Opener-Policy-Report-Only: same-origin; report-to="coop-endpoint"
+Reporting-Endpoints: coop-endpoint="https://coop.msauth.net:443/api/coopReport?client_type=none-none&client_id=25c704f4-465a-47af-80ab-2c489466b697&correlation_id=607286cb-109e-4465-b8c7-a585ceb0a24c"
+Link: <https://aadcdn.msauth.net>; rel=preconnect; crossorigin
+Link: <https://aadcdn.msauth.net>; rel=preconnect; crossorigin,<https://aadcdn.msauth.net>; rel=dns-prefetch
+Link: <https://aadcdn.msauth.net>; rel=preconnect; crossorigin,<https://aadcdn.msauth.net>; rel=dns-prefetch,<https://aadcdn.msftauth.net>; rel=dns-prefetch
+X-DNS-Prefetch-Control: on
+P3P: CP="DSP CUR OTPi IND OTRi ONL FIN"
+x-ms-request-id: e697cb56-21f6-4e82-abce-fab284b60600
+x-ms-ests-server: 2.1.25158.8 - SCUS ProdSlices
+x-ms-srs: 1.P
+Content-Security-Policy-Report-Only: object-src 'none'; base-uri 'self'; script-src 'self' 'nonce-TmKI4FI4rRDnh5gYMnSEOA' 'unsafe-inline' 'unsafe-eval' https://*.msauth.net https://*.msftauth.net https://*.msftauthimages.net https://*.msauthimages.net https://*.msidentity.com https://*.microsoftonline-p.com https://*.microsoftazuread-sso.com https://*.azureedge.net https://*.outlook.com https://*.office.com https://*.office365.com https://*.microsoft.com https://*.bing.com 'report-sample'; report-uri https://csp.microsoft.com/report/ESTS-UX-All
+X-XSS-Protection: 0
+Set-Cookie: esctx-KPWbnHGg5E0=AQABCQEAAAAdDD7nC9b5Q7JPd_okEQRFRXZvU3RzQXJ0aWZhY3RzDQAAAAAAHwAkwKJz41sOIOpgmFY_CEenHJ3alwG8FmcG5QVf4onLEVmsgz8EQaMx4XniWyOX510iDm-I-yheUYEFb5btAOpIh3IsCrdMwR5FwYIZW8WxMLfY5e-JA214U6jhC9Kx-GnFwNVm4hdAwwa3DVvdnCAA; domain=.sociobotcustomers.ciamlogin.com; path=/; secure; HttpOnly; SameSite=None
+Set-Cookie: buid=1.AbgAQP7GNcAOtkaYxiE61N5mUPQExyVaRq9HgKssSJRmtpcAAAC4AA.AQABGgEAAAAdDD7nC9b5Q7JPd_okEQRFRXZvU3RzQXJ0aWZhY3RzAwAAAAAAro9pd_IeLvLbvmWOA7z1ouU1TW8dCVC8xe8ovLtEUCbTHlWvinyvND5-VFdKIbfQuChHVnNIebsbyBKfIXWdY4wN_CLGmx7V2KDXXVKVaVsgAA; expires=Sun, 27-Sep-2026 22:00:14 GMT; path=/; secure; HttpOnly; SameSite=None
+Set-Cookie: esctx=PBgABBwEAAAAdDD7nC9b5Q7JPd_okEQRFRXZvU3RzQXJ0aWZhY3RzDQAAAAAA4nlEWobF9wEIxOapk_hLLFaurduC4BJF3XGJJPsan-UW_GvBLshLmb1BWRye7XYPtnrQlEVVvE6H_UrQSv4y7e5OjXlLXV-eY8FlB0t3XnrfXXxQjxFahXlBtH3RlTWfsjsf6gxhkjfjqvAQCkvWe_IHxmMgyDkDsBdAqBcxj5PEqeLDXbPuyuUJSww86daaEXOTRc89BnXEalrlf_MMj8_jpPb7nni3kmhdAPQqbEEOb2gbTnCtzOvgKQruT-D6tPro-j94VdyE2LIx2ePqCjkeYUoYThNXSeGX1vYVzEv8EpIGqY-TtYpMqLkQ3QeGYxEEbsJOXKni-YH1JyyBAJxrVbfSL9Gt8xVJliPf4tx2_x3tvbN8u88pngaat7dtp90eo7B-O91PoL4EFbHTZe9CHoJ9X1XHz_ddkKfRPrWl4RaPKPjeEuwwfyazkzGYAjKluaL8p7ELk5014_08fpHHAeDXrMt42TxLSnmdOF_81K5ON2oB1O9bKx2x2ccvr_LR4inHc2bTAdeEDsXAyjkxDWrRXRjy0uy9xpwG434RaaI0mIsyv0Ujb3x4kGH8R-JS5E1Ws5Li7qQ2h7JYMSPAQWwkkjs7kU0RRbB00S_lyXXUAj1ttKzycRGj7JvTIC21BnH7DeurDeemHk-hb9eps59vWBbgumb9cGu7PjVfLB68jA7_TjTLGrWDUQajYHylAcRGesxWkJCDv8Y5ligTiyYjpgvDoT2gjKMdxzUgAA; domain=.sociobotcustomers.ciamlogin.com; path=/; secure; HttpOnly; SameSite=None
+Set-Cookie: esctx-mA0QzObQgOs=AQABCQEAAAAdDD7nC9b5Q7JPd_okEQRFRXZvU3RzQXJ0aWZhY3RzDQAAAAAA7w5xvKgfTsGcpsuFxHWOhuJxRaVFNfGZtg4cVNmxrWlYVoaqC_UefVAzQEY42vgVS7MV0xCPHv8cLvseaVbQgCP3HmPi4x8hezxThnNadpqp6zIXdzrZlnOi0q-hOxRbcJLkONFvGdg9jio9pI7mQCAA; domain=.sociobotcustomers.ciamlogin.com; path=/; secure; HttpOnly; SameSite=None
+Set-Cookie: fpc=AmKp0wmQqPVIpD8IYHzebKwKOmv9AQAAAO37I-IOAAAA; expires=Sun, 27-Sep-2026 22:00:14 GMT; path=/; secure; HttpOnly; SameSite=None
+Set-Cookie: x-ms-gateway-slice=estsfd; path=/; secure; samesite=none; httponly
+Set-Cookie: stsservicecookie=estsfd; path=/; secure; samesite=none; httponly
+Date: Fri, 28 Aug 2026 22:00:13 GMT
+
