@@ -11,7 +11,7 @@ Base report: `ff6f95b2cd9d30cb3f93dff935068eefca3e19e2`, candidate `6e4cbb77f20f
 ## What changed
 
 - Replaced process-local demo workspaces with a 59-byte self-contained cookie state. The cookie is `HttpOnly; Secure; SameSite=Lax`, scoped to `/api/v1/demo`, and expires after 24 hours. Fictional state now survives replica changes and process restarts.
-- Changed all limiter keys to the ingress-appended final `X-Forwarded-For` hop. Caller-supplied leading hops no longer choose a bucket. Creation, demo writes, the general API governor, and `/metrics` return JSON `429` responses with `Retry-After`.
+- Changed all limiter keys to the ingress-appended final `X-Forwarded-For` hop. Caller-supplied leading hops no longer choose a bucket. Creation, demo writes, the 20 request/second general API governor, and `/metrics` return JSON `429` responses with `Retry-After`.
 - Added structured JSON problems for malformed JSON and bodies over 16 KB.
 - Added `/metrics`, HSTS, gzip response compression, immutable one-year caching for hashed assets, `Secure` cookies, and real HTTP 404 responses while preserving SPA deep links.
 - Changed the Rust build stage to `rust:1-slim`.
@@ -77,4 +77,14 @@ Until those actions are complete, `/start` is intentionally an evidence-import a
 
 Target: container app `sf-clinic-reminder-proof` at `https://clinic-reminder-proof.sociobot.in`, built with source `Dockerfile`, port 8080. The production app must remain at one replica so in-memory rate allowances have one authoritative bucket; demo state itself is replica-independent.
 
-Live revision, final SHA, and post-deploy checks are recorded after deployment.
+The first repaired deployment used image `sociobotregistry.azurecr.io/sf-clinic-reminder-proof:29798ac8bebc`; `/health` returned the complete matching SHA `29798ac8bebcd79dd5a58feffaff9c0045af6015`. It was followed by the corrected 20 request/second governor build in this handoff commit. The deployment configuration is min 1 / max 1 replica.
+
+Public-host evidence from `https://clinic-reminder-proof.sociobot.in`:
+
+- Factory `verify-url.sh`: HTTP 200, 671 ms browser load, correct title/lang/one h1/main, zero missing alt/unlabelled buttons, and zero console errors.
+- One live cookie produced 24/24 state reads at 200 with the same workspace, then completed detail → Back → assign with owner `Sam Rivera`.
+- The live `/start` import classified a real CSV fallback as “Delivered by fallback.” Runtime requests remained same-origin.
+- The public responses expose HSTS/CSP/nosniff, gzip, immutable hashed-asset caching, a Prometheus `/metrics`, JSON 400/413/429 errors, and `Retry-After` on limiter responses.
+- Live captures and `verify.json` are under `.factory/qa-artifacts/repair/live/`.
+
+After the final push/deploy, `/health` is the authority for the exact final source identity; it must equal pushed `main` before handoff.

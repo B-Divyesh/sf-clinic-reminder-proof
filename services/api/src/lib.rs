@@ -70,7 +70,7 @@ pub fn app(build_sha: &'static str, dist_dir: impl Into<PathBuf>) -> Router {
     let demo_store = DemoStore::new();
     let api_governor = Arc::new(
         GovernorConfigBuilder::default()
-            .per_second(20)
+            .per_millisecond(50)
             .burst_size(40)
             .key_extractor(TrustedProxyIpExtractor)
             .use_headers()
