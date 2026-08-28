@@ -1,0 +1,50 @@
+# Demo sandbox contract
+
+Status: planned for M1; no demo behavior exists in the planning scaffold.
+
+## Entry and isolation
+
+- Public entry: `https://clinic-reminder-proof.sociobot.in/?demo=1`
+- Stable route: `https://clinic-reminder-proof.sociobot.in/demo`
+- No account, card, connector, or provider credential is required.
+- `POST /api/v1/demo/workspaces` creates a cryptographically random workspace with a 24-hour TTL and a signed, HttpOnly, SameSite=Lax cookie scoped to the demo API.
+- Every demo read and write includes the resolved workspace ID in the server repository boundary. Production tenant repositories are not constructed for a demo request.
+- No demo operation can dispatch a message, call a provider, begin checkout, or read authenticated tenant state.
+
+## Seed data
+
+M1 must use fictional people and clearly label all delivery events “Simulated.” The canonical seed contains one clinic, two staff members, and five appointments:
+
+| Patient alias | Appointment | Scenario | Expected outcome |
+| --- | --- | --- | --- |
+| Mina P. | Hygiene visit, 09:00 | SMS provider reports delivered | Delivery evidence |
+| Jordan L. | Follow-up visit, 10:30 | Approved WhatsApp template is rejected; consented email succeeds | Ordered fallback evidence |
+| Sofia R. | New patient visit, 14:00 | SMS opted out; no other channel allowed | Unassigned exception |
+| Eli K. | Review visit, 15:30 | Email delivered; patient replies “YES” | Delivery and response evidence |
+| Noor A. | Cleaning, next day 08:30 | Source cancels before reminder is due | Cancelled, no dispatch |
+
+These labels are operational examples, not clinical records. The seed contains no diagnosis, treatment detail, date of birth, postal address, insurance information, real phone number, or real email address.
+
+## Supported demo actions
+
+- Inspect the delivery ledger and each reminder timeline.
+- Advance deterministic simulated attempts.
+- Observe a consent block and an ordered fallback.
+- Assign the Sofia R. exception to Sam Rivera.
+- Resolve it with “Called patient” and undo while safe.
+- Reset the demo from the persistent banner.
+- Choose “Start for real,” which discards the demo cookie before taking the visitor to sign-in after M2. In M1 it explains that accounts arrive in the next milestone without claiming a live workflow.
+
+## Reset
+
+“Reset demo” deletes or expires the current workspace, requests a new random workspace, reloads the canonical seed, clears demo filter state, and restores focus to the demo `<h1>`. It does not mutate a shared seed or reuse an authenticated organization.
+
+## Storage namespaces
+
+- Server: `demo_workspaces` / demo repository keyed by random workspace ID, TTL 24 hours.
+- Browser preferences: keys prefixed `demo:clinic-reminder-proof:<workspace-id>:` only.
+- Authenticated product data will use no `demo:` namespace and is never queried while the demo banner is shown.
+
+## Verification
+
+Every M1 claim begins in a fresh browser context at `/?demo=1`. Tests record browser requests for the full flow and allow only the product origin. Provider and billing adapters are replaced by compile-time-disabled demo implementations, not network mocks in the browser. The seed and clock are deterministic in test mode. Test traces and screenshots go under `test-results/` and are never committed.

@@ -32,5 +32,6 @@
   "scale": "venture",
   "why_distinct": "It is a reliability and proof layer around an existing calendar/EMR, not another clinical management suite.",
   "confidence": 4,
-  "state": "RESEARCHED"
+  "state": "ADMITTED",
+  "admitted_at": "2026-08-28T18:07:41Z"
 }

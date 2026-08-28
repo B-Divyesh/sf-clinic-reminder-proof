@@ -1,0 +1,65 @@
+[
+  {
+    "id": "demo-isolation",
+    "claim": "Demo actions use sample data only and never contact a messaging provider.",
+    "where": "landing facts, demo banner, privacy page",
+    "test": "npm run test:e2e -- --grep @claim:demo-isolation",
+    "sandbox": "fresh browser context opened at /?demo=1; record all requests during reset, advance, assign, and resolve; assert the random demo workspace is the only data scope and every request is same-origin"
+  },
+  {
+    "id": "sample-outcome-coverage",
+    "claim": "Every due sample reminder has delivery evidence or a staff-owned exception.",
+    "where": "landing preview, demo ledger summary",
+    "test": "npm run test:e2e -- --grep @claim:sample-outcome-coverage",
+    "sandbox": "fresh seeded demo; advance all due reminders; assert each terminal reminder has a provider delivery event or an open, assigned, or resolved exception and the displayed numerator equals the rows"
+  },
+  {
+    "id": "consent-channel-guard",
+    "claim": "A sample channel without recorded consent is blocked before dispatch.",
+    "where": "demo reminder timeline, how it works",
+    "test": "npm run test:e2e -- --grep @claim:consent-channel-guard",
+    "sandbox": "fresh seeded demo; advance the opt-out appointment; assert the channel is marked blocked, no provider-attempt event exists, and a visible exception gives the next staff action"
+  },
+  {
+    "id": "fallback-order",
+    "claim": "A simulated delivery failure tries the next allowed sample channel.",
+    "where": "landing preview, demo reminder timeline",
+    "test": "npm run test:e2e -- --grep @claim:fallback-order",
+    "sandbox": "fresh seeded demo; advance the provider-rejection appointment; assert the first attempt fails, the second channel matches policy order and consent, and the second attempt is labeled Simulated"
+  },
+  {
+    "id": "delivery-timeline",
+    "claim": "The sample timeline shows the channel, time, provider result, and exact outcome for each attempt.",
+    "where": "demo reminder evidence",
+    "test": "npm run test:e2e -- --grep @claim:delivery-timeline",
+    "sandbox": "fresh seeded demo; open the delivered and fallback reminders; assert visible labels and accessible text contain channel, timestamp, simulated provider result, and outcome in chronological order"
+  },
+  {
+    "id": "exception-ownership",
+    "claim": "Staff can assign and resolve a sample exception.",
+    "where": "demo exception queue and reminder evidence",
+    "test": "npm run test:e2e -- --grep @claim:exception-ownership",
+    "sandbox": "fresh seeded demo; assign the unowned exception to Sam Rivera, resolve it as Called patient, reload, assert owner and resolution, then use the offered undo and assert the prior state returns"
+  },
+  {
+    "id": "demo-reset",
+    "claim": "Reset demo restores the original sample clinic.",
+    "where": "demo banner",
+    "test": "npm run test:e2e -- --grep @claim:demo-reset",
+    "sandbox": "fresh seeded demo; change assignment, resolve one exception, advance a pending reminder, choose Reset demo, and assert the exact original seed counts and states return in a new isolated workspace"
+  },
+  {
+    "id": "minimal-reminder-content",
+    "claim": "Sample reminder contents exclude clinical notes, diagnoses, and treatment details.",
+    "where": "landing privacy facts, demo evidence, privacy page",
+    "test": "npm run test:e2e -- --grep @claim:minimal-reminder-content",
+    "sandbox": "fresh seeded demo; inspect every sample reminder and API response; assert only clinic name, fictional patient first name/alias, appointment date/time, location, confirmation action, and opt-out copy appear and forbidden clinical fields are absent"
+  },
+  {
+    "id": "public-price",
+    "claim": "The Clinic plan costs $79 per location each month, plus published messaging charges.",
+    "where": "landing pricing section, terms page",
+    "test": "npm run test:e2e -- --grep @claim:public-price",
+    "sandbox": "fresh public session; assert the landing and terms pages show the same exact price, billing period, per-location unit, and messaging-charge qualifier without requiring sign-in"
+  }
+]
