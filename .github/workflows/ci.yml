@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Install browser for smoke tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Test
+        run: npm test
+
+      - name: Check types and formatting
+        run: npm run check
+
+      - name: Build web and API
+        env:
+          BUILD_SHA: ${{ github.sha }}
+        run: npm run build
+
+      - name: Confirm deployable artifacts
+        run: test -f dist/index.html && test -x target/release/reminder-proof-api

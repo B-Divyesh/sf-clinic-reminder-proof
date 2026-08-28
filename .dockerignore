@@ -1,0 +1,11 @@
+.git
+.github
+.factory
+node_modules
+target
+dist
+coverage
+playwright-report
+test-results
+.env*
+*.log

@@ -1,6 +1,15 @@
 node_modules/
 dist/
+target/
+.svelte-kit/
+coverage/
+playwright-report/
+test-results/
 .env
+.env.*
+!.env.example
 *.log
 graphify-out/
 .DS_Store
+.idea/
+.vscode/

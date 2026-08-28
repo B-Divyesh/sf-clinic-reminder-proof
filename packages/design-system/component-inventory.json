@@ -1,0 +1,22 @@
+[
+  { "name": "AppShell", "firstMilestone": "M1", "states": ["public", "demo", "signed-in", "offline"] },
+  { "name": "SiteHeader", "firstMilestone": "M1", "states": ["wide", "compact", "signed-in"] },
+  { "name": "DemoBanner", "firstMilestone": "M1", "states": ["active", "resetting", "reset-error"] },
+  { "name": "RouteAnnouncer", "firstMilestone": "M1", "states": ["idle", "announcing"] },
+  { "name": "PrimaryButton", "firstMilestone": "M1", "states": ["default", "hover", "pressed", "focus-visible", "busy", "disabled"] },
+  { "name": "SecondaryButton", "firstMilestone": "M1", "states": ["default", "hover", "pressed", "focus-visible", "busy", "disabled"] },
+  { "name": "TextLink", "firstMilestone": "M1", "states": ["default", "hover", "focus-visible", "visited", "external"] },
+  { "name": "Field", "firstMilestone": "M1", "states": ["default", "focus", "filled", "invalid", "disabled", "read-only"] },
+  { "name": "StatusChip", "firstMilestone": "M1", "states": ["scheduled", "attempted", "delivered", "replied", "blocked", "exception", "resolved", "simulated"] },
+  { "name": "ConsentBadge", "firstMilestone": "M1", "states": ["allowed", "blocked", "unknown"] },
+  { "name": "FilterBar", "firstMilestone": "M1", "states": ["wide", "mobile-sheet", "filtered", "empty"] },
+  { "name": "LedgerTimeline", "firstMilestone": "M1", "states": ["compact", "expanded", "pending", "complete", "exception"] },
+  { "name": "AttemptRow", "firstMilestone": "M1", "states": ["default", "selected", "new", "stale", "loading-detail"] },
+  { "name": "PulseMarker", "firstMilestone": "M1", "states": ["idle", "new-event", "reduced-motion"] },
+  { "name": "ExceptionCard", "firstMilestone": "M1", "states": ["unassigned", "assigned-to-me", "assigned-elsewhere", "overdue", "resolved"] },
+  { "name": "AssignmentControl", "firstMilestone": "M1", "states": ["idle", "saving", "conflict", "saved", "error"] },
+  { "name": "ConfirmationDialog", "firstMilestone": "M1", "states": ["closed", "open", "confirming", "error"] },
+  { "name": "InlineNotice", "firstMilestone": "M1", "states": ["info", "success", "warning", "danger"] },
+  { "name": "StatePanel", "firstMilestone": "M1", "states": ["empty", "loading", "error", "expired-demo", "offline"] },
+  { "name": "EvidenceDrawer", "firstMilestone": "M1", "states": ["loading", "ready", "partial-provider-data", "error", "mobile-dialog"] }
+]
