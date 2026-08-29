@@ -109,7 +109,6 @@ export function inspectRollout(app, revisions, image) {
   return {
     readyRevision,
     trafficRevisions,
-    trafficConverged,
-    trafficTarget: readyRevision ? `${readyRevision.name}=100` : undefined
+    trafficConverged
   };
 }

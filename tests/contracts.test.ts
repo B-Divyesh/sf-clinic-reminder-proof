@@ -230,7 +230,6 @@ describe('planning scaffold contracts', () => {
     const before = inspectRollout(app, revisions, image);
     expect(before.readyRevision?.name).toBe('sf-clinic-reminder-proof--0000040');
     expect(before.trafficConverged).toBe(false);
-    expect(before.trafficTarget).toBe('sf-clinic-reminder-proof--0000040=100');
 
     revisions[0].properties.trafficWeight = 100;
     revisions[1].properties.trafficWeight = 0;

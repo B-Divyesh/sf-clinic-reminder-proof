@@ -51,8 +51,7 @@ const endpoint = `${currentApp.id}?api-version=${apiVersion}`;
 azure(['rest', '--method', 'PATCH', '--uri', endpoint, '--body', JSON.stringify(patch), '--output', 'none']);
 
 const deadline = Date.now() + deploymentTimeoutMs;
-let readyRevision;
-let readyTrafficTarget;
+let servingRevision;
 while (Date.now() < deadline) {
   const app = JSON.parse(
     azure(['containerapp', 'show', '--resource-group', resourceGroup, '--name', appName, '--output', 'json'])
@@ -63,45 +62,17 @@ while (Date.now() < deadline) {
   const rollout = inspectRollout(app, revisions, image);
   if (rollout.readyRevision) {
     validateTopology({ properties: { template: rollout.readyRevision.properties?.template } });
-    readyRevision = rollout.readyRevision;
-    readyTrafficTarget = rollout.trafficTarget;
-    break;
+    if (rollout.trafficConverged && rollout.readyRevision.properties?.replicas === 1) {
+      validateTopology({ properties: { template: app.properties?.template } });
+      servingRevision = rollout.readyRevision;
+      break;
+    }
   }
   await wait(10_000);
 }
 
-if (!readyRevision) fail('the target revision did not become healthy before the deployment timeout');
-
-// Name the healthy revision instead of using "latest". A concurrent,
-// unhealthy image-only rollout must never receive traffic by accident.
-azure([
-  'containerapp', 'ingress', 'traffic', 'set',
-  '--resource-group', resourceGroup,
-  '--name', appName,
-  '--revision-weight', readyTrafficTarget,
-  '--output', 'none'
-]);
-
-let servingRevision;
-while (Date.now() < deadline) {
-  const app = JSON.parse(
-    azure(['containerapp', 'show', '--resource-group', resourceGroup, '--name', appName, '--output', 'json'])
-  );
-  const revisions = JSON.parse(
-    azure(['containerapp', 'revision', 'list', '--resource-group', resourceGroup, '--name', appName, '--output', 'json'])
-  );
-  const rollout = inspectRollout(app, revisions, image);
-  if (rollout.trafficConverged && rollout.readyRevision?.properties?.replicas === 1) {
-    validateTopology({ properties: { template: app.properties?.template } });
-    validateTopology({ properties: { template: rollout.readyRevision.properties?.template } });
-    servingRevision = rollout.readyRevision;
-    break;
-  }
-  await wait(5_000);
-}
-
 if (!servingRevision) {
-  fail('the healthy target revision did not become the sole 100% traffic target before the deployment timeout');
+  fail('the target revision did not become healthy and the sole 100% traffic target before the deployment timeout');
 }
 
 console.log(JSON.stringify({
@@ -109,5 +80,5 @@ console.log(JSON.stringify({
   image,
   revision: servingRevision.name,
   trafficWeight: 100,
-  message: 'Applied the checked-in durable topology and assigned all traffic to its healthy revision. Run verify:deployment with the expected build SHA.'
+  message: 'Applied the checked-in durable topology and confirmed its healthy revision has all traffic. Run verify:deployment with the expected build SHA.'
 }, null, 2));

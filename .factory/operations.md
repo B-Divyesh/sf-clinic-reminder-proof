@@ -50,8 +50,8 @@ every Container Apps rollout. The deploy command reads
 `deployment/containerapp.json` and patches the full revision template, so an
 image update cannot omit the two Azure Files mounts or increase the replica
 limit. It preserves factory-managed ingress, domains, identity, and app-level
-settings. It then assigns all traffic to that exact healthy revision and waits
-for Azure to confirm the assignment.
+settings. In single-revision mode, it waits for Azure to promote that exact
+healthy revision as the only 100% traffic target.
 
 After each rollout, run `npm run verify:deployment` from this repository with
 Azure access. It fails unless the active revision has exactly one replica,
