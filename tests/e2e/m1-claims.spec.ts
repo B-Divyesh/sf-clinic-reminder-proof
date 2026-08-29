@@ -189,6 +189,22 @@ test('@claim:demo-replica-continuity Demo changes remain after navigation, reloa
   await expect(page.getByLabel('Owner for Sofia R.')).toHaveValue('Sam Rivera');
 });
 
+test('@regression:qa11-02 Every visible demo control has a 44 px mobile hit area.', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openDemo(page);
+
+  const controls = page.locator('.app-page a:visible, .app-page button:visible, .app-page select:visible');
+  expect(await controls.count()).toBeGreaterThanOrEqual(10);
+
+  for (let index = 0; index < await controls.count(); index += 1) {
+    const control = controls.nth(index);
+    const box = await control.boundingBox();
+    expect(box, `visible demo control ${index} needs a layout box`).not.toBeNull();
+    expect(box!.width, `visible demo control ${index} is too narrow`).toBeGreaterThanOrEqual(44);
+    expect(box!.height, `visible demo control ${index} is too short`).toBeGreaterThanOrEqual(44);
+  }
+});
+
 test('@claim:no-tracking No tracking script or third-party runtime request loads, and page fonts come from this site.', async ({ page }) => {
   const requests: string[] = [];
   page.on('request', (request) => requests.push(request.url()));

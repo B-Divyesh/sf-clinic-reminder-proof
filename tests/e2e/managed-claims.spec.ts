@@ -63,7 +63,7 @@ test('@claim:managed-storage-recovery Every saved clinic change has a durable ma
   expect(output).toContain('managed_storage_recovery_claim ... ok');
 });
 
-test('@claim:single-replica-durable-topology Production configuration has one replica and mounts both recovery shares.', async () => {
+test('@claim:single-replica-durable-topology The checked-in Container Apps template has one replica and both recovery shares.', async () => {
   const deployment = JSON.parse(await readFile('deployment/containerapp.json', 'utf8')) as {
     properties: { template: { scale: { minReplicas: number; maxReplicas: number }; volumes: Array<{ name: string; storageName: string; storageType: string }>; containers: Array<{ volumeMounts: Array<{ volumeName: string; mountPath: string }> }> } };
   };

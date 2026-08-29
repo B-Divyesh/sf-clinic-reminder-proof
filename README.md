@@ -37,6 +37,8 @@ The API requires no configuration and uses `PORT` (default `8080`). The single-r
 
 The production container pins the app to one replica so SQLite and demo-creation limits have one state owner. The container mounts separate durable and backup shares at `/durable` and `/backups`. The application runs without root privileges. Recovery steps and the restore regression are documented in [`.factory/operations.md`](.factory/operations.md). Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Sociobot Entra SPA before sign-in is opened to clinics.
 
+The production image refuses to start when either required share is missing. After deployment, run `npm run verify:deployment` with Azure access to check the active revision, mounts, replica count, and six-request rate limit.
+
 ## Clinic integration contract
 
 All clinic routes require an Entra bearer token. The stable `oid` claim owns the workspace; email is never an identity key.

@@ -335,6 +335,7 @@ impl ClinicState {
                     dir.join("backups")
                 }
             });
+        ensure_required_storage_mounts(&durable, &backups)?;
         Self::new(dir, durable, backups, AuthService::from_env(), None, None)
     }
 
@@ -427,6 +428,43 @@ fn data_dir() -> PathBuf {
     env::var_os("DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("target/reminder-proof-data"))
+}
+
+/// The container image opts into this check while local development keeps
+/// portable directories below `DATA_DIR`. A missing Azure Files mount must
+/// make a production revision unhealthy instead of accepting clinic records
+/// on ephemeral container storage.
+fn ensure_required_storage_mounts(durable: &Path, backups: &Path) -> Result<(), String> {
+    if env::var("REQUIRE_DURABLE_MOUNTS").ok().as_deref() != Some("1") {
+        return Ok(());
+    }
+
+    let mount_info = fs::read_to_string("/proc/self/mountinfo")
+        .map_err(|error| format!("read container mount information: {error}"))?;
+    let missing = missing_required_mounts(&mount_info, &[durable, backups]);
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "required durable storage mounts are missing: {}; refusing unsafe production storage",
+            missing.join(", ")
+        ))
+    }
+}
+
+fn missing_required_mounts(mount_info: &str, paths: &[&Path]) -> Vec<String> {
+    paths
+        .iter()
+        .filter_map(|path| {
+            let target = path.to_string_lossy();
+            let mounted = mount_info.lines().any(|line| {
+                line.split_once(" - ")
+                    .and_then(|(before_separator, _)| before_separator.split_whitespace().nth(4))
+                    == Some(target.as_ref())
+            });
+            (!mounted).then(|| target.into_owned())
+        })
+        .collect()
 }
 
 fn load_or_create_key(path: &Path) -> Result<[u8; 32], String> {
@@ -2110,6 +2148,24 @@ mod tests {
     use http_body_util::BodyExt;
     use tokio::net::TcpListener;
     use tower::ServiceExt;
+
+    #[test]
+    fn production_storage_guard_requires_both_azure_file_mounts() {
+        let mount_info = "31 22 0:29 / / rw,relatime - overlay overlay rw\n42 31 0:61 / /durable rw,relatime - cifs //storage/data rw\n43 31 0:62 / /backups rw,relatime - cifs //storage/backups rw\n";
+        assert!(missing_required_mounts(
+            mount_info,
+            &[Path::new("/durable"), Path::new("/backups")]
+        )
+        .is_empty());
+
+        assert_eq!(
+            missing_required_mounts(
+                "31 22 0:29 / / rw,relatime - overlay overlay rw\n42 31 0:61 / /durable rw,relatime - cifs //storage/data rw\n",
+                &[Path::new("/durable"), Path::new("/backups")]
+            ),
+            vec!["/backups"]
+        );
+    }
 
     async fn fixture_gateway() -> (String, tokio::task::JoinHandle<()>) {
         let router = Router::new()

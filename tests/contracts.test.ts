@@ -113,6 +113,7 @@ describe('planning scaffold contracts', () => {
       'Each saved change writes a matching durable database and key under `DURABLE_DIR`.',
       'A daily recovery copy is kept under `BACKUP_DIR` for 30 days.',
       'The container mounts separate durable and backup shares at `/durable` and `/backups`.',
+      'The production image refuses to start when either required share is missing.',
       'The application runs without root privileges.'
     ];
     for (const sentence of required) {

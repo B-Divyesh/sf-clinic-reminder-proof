@@ -1,0 +1,85 @@
+import { spawnSync } from 'node:child_process';
+
+const resourceGroup = process.env.REMINDER_PROOF_RESOURCE_GROUP ?? 'sociobot';
+const appName = process.env.REMINDER_PROOF_APP_NAME ?? 'sf-clinic-reminder-proof';
+const liveUrl = (process.env.REMINDER_PROOF_LIVE_URL ?? 'https://clinic-reminder-proof.sociobot.in').replace(/\/$/, '');
+const expectedBuildSha = process.env.EXPECTED_BUILD_SHA;
+
+function fail(message) {
+  throw new Error(`Deployment verification failed: ${message}`);
+}
+
+function azure(args) {
+  const result = spawnSync('az', args, { encoding: 'utf8' });
+  if (result.status !== 0) fail(result.stderr.trim() || `az ${args.join(' ')} exited ${result.status}`);
+  return result.stdout;
+}
+
+function requireEqual(actual, expected, description) {
+  if (actual !== expected) fail(`${description}; expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+}
+
+const app = JSON.parse(azure(['containerapp', 'show', '--resource-group', resourceGroup, '--name', appName, '--output', 'json']));
+const template = app.properties?.template;
+requireEqual(template?.scale?.minReplicas, 1, 'minimum replica count');
+requireEqual(template?.scale?.maxReplicas, 1, 'maximum replica count');
+
+const volumes = template?.volumes ?? [];
+for (const expected of [
+  { name: 'clinic-data', storageType: 'AzureFile', storageName: 'clinic-reminder-proof-data' },
+  { name: 'clinic-backups', storageType: 'AzureFile', storageName: 'clinic-reminder-proof-backups' }
+]) {
+  const volume = volumes.find((item) => item.name === expected.name);
+  if (!volume) fail(`missing ${expected.name} Azure Files volume`);
+  requireEqual(volume.storageType, expected.storageType, `${expected.name} storage type`);
+  requireEqual(volume.storageName, expected.storageName, `${expected.name} storage binding`);
+}
+
+const mounts = template?.containers?.find((container) => container.name === 'app')?.volumeMounts ?? [];
+for (const expected of [
+  { volumeName: 'clinic-data', mountPath: '/durable' },
+  { volumeName: 'clinic-backups', mountPath: '/backups' }
+]) {
+  const mount = mounts.find((item) => item.volumeName === expected.volumeName);
+  if (!mount) fail(`missing ${expected.volumeName} mount`);
+  requireEqual(mount.mountPath, expected.mountPath, `${expected.volumeName} mount path`);
+}
+
+const revisions = JSON.parse(azure(['containerapp', 'revision', 'list', '--resource-group', resourceGroup, '--name', appName, '--output', 'json']));
+const active = revisions.filter((revision) => revision.properties?.active);
+requireEqual(active.length, 1, 'active revision count');
+requireEqual(active[0]?.name, app.properties?.latestReadyRevisionName, 'active revision');
+requireEqual(active[0]?.properties?.replicas, 1, 'active replica count');
+
+const health = await fetch(`${liveUrl}/health`);
+if (!health.ok) fail(`live health returned ${health.status}`);
+const healthBody = await health.json();
+if (expectedBuildSha && healthBody.build_sha !== expectedBuildSha) {
+  fail(`live build identity; expected ${expectedBuildSha}, got ${healthBody.build_sha}`);
+}
+
+const randomOctet = () => Math.floor(Math.random() * 254) + 1;
+const clientIp = `198.18.${randomOctet()}.${randomOctet()}`;
+const rateStatuses = [];
+let retryAfter = null;
+for (let request = 0; request < 6; request += 1) {
+  const response = await fetch(`${liveUrl}/api/v1/demo/workspaces`, {
+    method: 'POST',
+    headers: { 'x-forwarded-for': `${clientIp}, 203.0.113.${request + 1}` }
+  });
+  rateStatuses.push(response.status);
+  if (request === 5) retryAfter = response.headers.get('retry-after');
+}
+if (rateStatuses.slice(0, 5).some((status) => status !== 200)) fail(`first five demo creations returned ${rateStatuses.join(', ')}`);
+requireEqual(rateStatuses[5], 429, `sixth demo creation status for ${clientIp}`);
+if (!retryAfter || Number(retryAfter) <= 0) fail(`sixth demo creation Retry-After header was ${JSON.stringify(retryAfter)}`);
+
+console.log(JSON.stringify({
+  app: appName,
+  revision: active[0].name,
+  image: template.containers.find((container) => container.name === 'app')?.image,
+  replicas: active[0].properties.replicas,
+  buildSha: healthBody.build_sha,
+  rateStatuses,
+  retryAfter
+}, null, 2));

@@ -544,7 +544,7 @@
                 <span class={`status-mark ${displayState}`} aria-hidden="true">{marker(displayState)}</span>
                 <div class="appointment"><strong>{reminder.appointment_time} · {reminder.patient_alias}</strong><span>{reminder.appointment}</span></div>
                 <div class="row-outcome"><span class={`status-word ${displayState}`}>{statusLabel(displayState)}</span><span>{demoDisplayOutcome(reminder)}</span></div>
-                <a href={`/demo/reminders/${reminder.id}`} onclick={(event) => follow(event, `/demo/reminders/${reminder.id}`)}>View evidence<span class="sr-only"> for {reminder.patient_alias}</span></a>
+                <a class="evidence-link" href={`/demo/reminders/${reminder.id}`} onclick={(event) => follow(event, `/demo/reminders/${reminder.id}`)}>View evidence<span class="sr-only"> for {reminder.patient_alias}</span></a>
               </li>
             {/each}
           </ul>
