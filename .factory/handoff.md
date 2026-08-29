@@ -5,7 +5,7 @@ Work order: `clinic-reminder-proof-repair-14`
 Base candidate: `36d39a8d57aa77e3d8131b5e0359d22d9519883e`
 Production URL: <https://clinic-reminder-proof.sociobot.in>
 
-## Status: repaired and ready for topology-aware rollout
+## Status: repaired, deployed, and verified
 
 This repair preserves the already-passing demo, managed clinic, privacy,
 accessibility, and delivery-evidence behavior. The independent source report is
@@ -18,8 +18,8 @@ accessibility, and delivery-evidence behavior. The independent source report is
   Azure showed `0000053` at 100% traffic with short tag `36d39a8d57aa`,
   `minReplicas: 1`, `maxReplicas: 3`, and no volumes or `/durable` and
   `/backups` mounts. Healthy full-SHA revision `0000052` was at 0% traffic.
-  The checked-in topology-aware rollout will replace that revision with the
-  full source tag, one replica, and both Azure Files mounts.
+  The checked-in topology-aware rollout replaced that revision with the full
+  source tag, one replica, and both Azure Files mounts.
 - **QA18-02:** the old test's `198.18.<worker>.<counter>` client was reused on
   every clean run. After one live pass, the immediate second run returned
   `429, 429, 429, 429, 429` for its five expected successes, reproducing the
@@ -54,10 +54,10 @@ accessibility, and delivery-evidence behavior. The independent source report is
 
 ## Rollout and final recheck
 
-Deploy only the full 40-character source tag with the checked-in
-topology-aware command. It reapplies `deployment/containerapp.json`, waits for
-one healthy 100%-traffic revision, and verifies public health/footer identity.
-Run this exact sequence after the clean commit is pushed:
+The repair used only the full 40-character source tag and the checked-in
+topology-aware command. It reapplied `deployment/containerapp.json`, waited for
+one healthy 100%-traffic revision, and verified public health/footer identity.
+Use this sequence for every later release:
 
 ```sh
 npm ci
@@ -68,9 +68,26 @@ npm run verify:deployment:current
 PLAYWRIGHT_BASE_URL=https://clinic-reminder-proof.sociobot.in npm run test:e2e
 ```
 
-The final verification must report `minReplicas: 1`, `maxReplicas: 1`, both
-Azure Files mounts, rate statuses `200,200,200,200,200,429`, and a positive
-`Retry-After`.
+## Post-rollout evidence
+
+- Azure Container Registry run `ch192` built and pushed
+  `sociobotregistry.azurecr.io/sf-clinic-reminder-proof:cf35bbe8ff7ff4b0339ea8196d1d47fc99c56ef9`
+  with digest `sha256:66ec811b28cfa0ec23b13186dd0d390255f684330702449d02f07a0a6b15fee7`.
+- Guarded rollout created healthy sole-traffic revision
+  `sf-clinic-reminder-proof--0000054` at 100%. Its app template reports
+  `minReplicas: 1`, `maxReplicas: 1`, full image tag
+  `cf35bbe8ff7ff4b0339ea8196d1d47fc99c56ef9`, and Azure Files mounts
+  `clinic-data` → `/durable` and `clinic-backups` → `/backups`.
+- `npm run verify:deployment:current`: PASS. It returned public build SHA
+  `cf35bbe8ff7ff4b0339ea8196d1d47fc99c56ef9`, one replica, rate statuses
+  `200,200,200,200,200,429`, and `Retry-After: 3599`.
+- `PLAYWRIGHT_BASE_URL=https://clinic-reminder-proof.sociobot.in npm run test:e2e`:
+  PASS — all 40 live Chromium tests, including desktop, 390 px mobile,
+  keyboard, offline read-only, privacy, headers, dark/light Axe, and the
+  repeated-client rate-limit claim.
+- `/opt/fleet/lib/verify-url.sh https://clinic-reminder-proof.sociobot.in`:
+  PASS — HTTPS 200 in 656 ms; title, `lang=en`, one `h1`, main landmark, all
+  image alts, and button names present; no page or console errors.
 
 ## Needs operator action
 
