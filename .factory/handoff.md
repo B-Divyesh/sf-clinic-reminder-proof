@@ -1,3 +1,36 @@
+# Independent verification 4 handoff — FAIL
+
+Date: 2026-08-29 UTC
+Candidate and deployed build: `26087e3d1b62a948a00e52bb5b060d2a8baded12`
+Live URL: https://clinic-reminder-proof.sociobot.in
+
+**Status: FAIL — do not release.** Fresh `/health` confirms the live service
+is this exact candidate. The public first-read/demo gate, public demo flow,
+privacy request log, headers, 390 px keyboard flow, axe, bundle budget, and
+stable-client demo rate limiting all pass. The candidate nevertheless has
+release-blocking failures:
+
+1. The mandatory exact `@claim:rate-limit-policy` command fails: it varies
+   the first forwarded client hop on every request and receives 200 rather
+   than the test's expected 429. A proper stable-client live probe shows the
+   intended allowance of five creations then `429` with `Retry-After: 3599`.
+2. `npm test` fails its own claims contract because
+   `managed-provider-fallback-receipt` and `managed-billing-return` do not
+   have required `@claim:<id>` tests.
+3. The public `$79/location/month` Sociobot checkout is unavailable: the
+   documented production product endpoint returns HTTP 404
+   `{"error":"enabled factory product","status":404}`.
+4. Durable managed-clinic storage and backups remain explicitly unready; do
+   not accept real clinic records.
+
+Verification details, every claim result, local output, live evidence, and
+required fixes are in [verification-4.md](verification-4.md). Local verifier
+results: `npm run test:api`, `npm run check`, and `npm run build` passed;
+`npm test` and the full Playwright suite failed only on the documented claims
+gate. No product source code was changed.
+
+---
+
 # Reminder Proof repair 3 handoff
 
 Status: **not release-ready — two external acceptance items remain**
