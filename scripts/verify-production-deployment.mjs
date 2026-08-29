@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { validateTopology } from './containerapp-topology.mjs';
 import { assertImageMatchesBuildSha, fetchPublicBuildIdentity, normalizeBuildSha } from './deployment-identity.mjs';
+import { createFreshTestClient } from './fresh-client-identity.mjs';
 
 const resourceGroup = process.env.REMINDER_PROOF_RESOURCE_GROUP ?? 'sociobot';
 const appName = process.env.REMINDER_PROOF_APP_NAME ?? 'sf-clinic-reminder-proof';
@@ -67,8 +68,10 @@ try {
   fail(error.message);
 }
 
-const randomOctet = () => Math.floor(Math.random() * 254) + 1;
-const clientIp = `198.18.${randomOctet()}.${randomOctet()}`;
+// This must be fresh for each verification. Demo creation allows five
+// requests per client for one hour, so an address derived from a test worker
+// would make a second clean run fail before it observes the documented limit.
+const clientIp = createFreshTestClient();
 const rateStatuses = [];
 let retryAfter = null;
 for (let request = 0; request < 6; request += 1) {

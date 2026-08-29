@@ -1,12 +1,10 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { createFreshTestClient } from '../../scripts/fresh-client-identity.mjs';
 
-let demoClient = 10;
-
-test.beforeEach(async ({ page }, testInfo) => {
-  demoClient += 1;
+test.beforeEach(async ({ page }) => {
   await page.context().setExtraHTTPHeaders({
-    'x-forwarded-for': `198.18.${testInfo.workerIndex}.${demoClient}`
+    'x-forwarded-for': createFreshTestClient()
   });
 });
 
@@ -261,7 +259,7 @@ test('@claim:request-protection JSON API writes enforce content type and 16 KB b
 });
 
 test('@claim:rate-limit-policy Demo creation is limited by the ingress client address and returns Retry-After.', async ({ page }) => {
-  const stableClient = `198.18.${demoClient}.17`;
+  const stableClient = createFreshTestClient();
   const responses: import('@playwright/test').APIResponse[] = [];
   for (let request = 0; request < 6; request += 1) {
     responses.push(await page.request.post('/api/v1/demo/workspaces', {
@@ -275,7 +273,7 @@ test('@claim:rate-limit-policy Demo creation is limited by the ingress client ad
 });
 
 test('one deployed rate-limit owner rejects concurrent demo creates after five and protects clinic routes', async ({ page }) => {
-  const stableClient = `198.18.${demoClient}.41`;
+  const stableClient = createFreshTestClient();
   const creates = await Promise.all(Array.from({ length: 18 }, (_, request) =>
     page.request.post('/api/v1/demo/workspaces', {
       headers: { 'x-forwarded-for': `${stableClient}, 203.0.113.${request}` }
@@ -286,7 +284,7 @@ test('one deployed rate-limit owner rejects concurrent demo creates after five a
   expect(rejectedCreates).toHaveLength(13);
   expect(rejectedCreates.every((response) => Number(response.headers()['retry-after']) > 0)).toBe(true);
 
-  const protectedClient = `198.18.${demoClient}.42`;
+  const protectedClient = createFreshTestClient();
   const billing = await Promise.all(Array.from({ length: 60 }, (_, request) =>
     page.request.post('/api/v1/billing/checkout', {
       headers: { 'x-forwarded-for': `${protectedClient}, 203.0.113.${request}` },
@@ -321,7 +319,7 @@ test('@claim:build-identity The footer matches the running build identity and me
     await expect(page.locator('footer small')).toHaveText(`Build ${healthBody.build_sha.slice(0, 7)}`);
   }
   const metrics = await page.request.get('/metrics', {
-    headers: { 'x-forwarded-for': `198.18.200.${demoClient}` }
+    headers: { 'x-forwarded-for': createFreshTestClient() }
   });
   expect(metrics.status()).toBe(200);
   expect(await metrics.text()).toContain('reminder_proof_http_requests_total');

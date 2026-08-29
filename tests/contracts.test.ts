@@ -2,8 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import { effectiveConsent, foldReminderOutcome, stateCopy } from '../apps/web/src/lib/reminder';
-import { buildTopologyPatch, inspectRollout } from '../scripts/containerapp-topology.mjs';
+import { buildTopologyPatch, inspectRollout, validateTopology } from '../scripts/containerapp-topology.mjs';
 import { assertPublicBuildIdentity, buildShaFromImage } from '../scripts/deployment-identity.mjs';
+import { createFreshTestClient } from '../scripts/fresh-client-identity.mjs';
 import {
   assertDeploymentImageMatchesSource,
   assertReleaseCheckoutReady,
@@ -379,6 +380,45 @@ describe('planning scaffold contracts', () => {
       }]
     });
     expect(repaired.volumes).toHaveLength(2);
+  });
+
+  test('@regression:qa18-01 and qa18-02 prevent unsafe live topology and reused rate-limit probes', async () => {
+    const topology = JSON.parse(await readRepositoryFile('deployment/containerapp.json'));
+    const unsafeRevision = {
+      properties: {
+        template: {
+          containers: [{ name: 'app', image: 'registry/app:36d39a8d57aa' }],
+          scale: { minReplicas: 1, maxReplicas: 3 },
+          volumes: null
+        }
+      }
+    };
+    expect(() => validateTopology(unsafeRevision)).toThrow(
+      'deployment topology must set minReplicas and maxReplicas to 1'
+    );
+    const repaired = buildTopologyPatch(
+      unsafeRevision,
+      topology,
+      'registry/app:36d39a8d57aa77e3d8131b5e0359d22d9519883e'
+    ).properties.template;
+    expect(repaired.scale).toMatchObject({ minReplicas: 1, maxReplicas: 1 });
+    expect(repaired.volumes).toHaveLength(2);
+    expect(() => buildShaFromImage('registry/app:36d39a8d57aa')).toThrow(
+      'container image tag must be a full 40-character Git commit SHA'
+    );
+
+    const clientIdentities = new Set(Array.from({ length: 32 }, (_, index) => createFreshTestClient(
+      () => `${index.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`
+    )));
+    expect(clientIdentities).toHaveLength(32);
+    expect([...clientIdentities].every((client) =>
+      /^2001:db8:[0-9a-f]{4}(?::[0-9a-f]{4}){5}$/i.test(client)
+    )).toBe(true);
+
+    const rateClaim = await readRepositoryFile('tests/e2e/m1-claims.spec.ts');
+    expect(rateClaim).toContain('const stableClient = createFreshTestClient();');
+    expect(rateClaim).not.toContain('let demoClient =');
+    expect(rateClaim).not.toContain('198.18.${demoClient}');
   });
 
   test('the container build context excludes Git metadata', async () => {
