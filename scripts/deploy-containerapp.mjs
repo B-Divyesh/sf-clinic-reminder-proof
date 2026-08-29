@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
-import { buildTopologyPatch } from './containerapp-topology.mjs';
+import { buildTopologyPatch, inspectRollout, validateTopology } from './containerapp-topology.mjs';
 
 const resourceGroup = process.env.REMINDER_PROOF_RESOURCE_GROUP ?? 'sociobot';
 const appName = process.env.REMINDER_PROOF_APP_NAME ?? 'sf-clinic-reminder-proof';
@@ -35,6 +35,10 @@ const currentApp = JSON.parse(
 );
 const patch = buildTopologyPatch(currentApp, topology, image);
 
+if (currentApp.properties?.configuration?.activeRevisionsMode !== 'Single') {
+  fail('the app must use single revision mode for the SQLite consistency boundary');
+}
+
 if (dryRun) {
   console.log(JSON.stringify(patch, null, 2));
   process.exit(0);
@@ -48,6 +52,7 @@ azure(['rest', '--method', 'PATCH', '--uri', endpoint, '--body', JSON.stringify(
 
 const deadline = Date.now() + deploymentTimeoutMs;
 let readyRevision;
+let readyTrafficTarget;
 while (Date.now() < deadline) {
   const app = JSON.parse(
     azure(['containerapp', 'show', '--resource-group', resourceGroup, '--name', appName, '--output', 'json'])
@@ -55,14 +60,11 @@ while (Date.now() < deadline) {
   const revisions = JSON.parse(
     azure(['containerapp', 'revision', 'list', '--resource-group', resourceGroup, '--name', appName, '--output', 'json'])
   );
-  const candidate = revisions.find((revision) => {
-    const candidateImage = revision.properties?.template?.containers?.find(({ name }) => name === 'app')?.image;
-    return revision.name === app.properties?.latestReadyRevisionName
-      && revision.properties?.healthState === 'Healthy'
-      && candidateImage === image;
-  });
-  if (candidate) {
-    readyRevision = candidate;
+  const rollout = inspectRollout(app, revisions, image);
+  if (rollout.readyRevision) {
+    validateTopology({ properties: { template: rollout.readyRevision.properties?.template } });
+    readyRevision = rollout.readyRevision;
+    readyTrafficTarget = rollout.trafficTarget;
     break;
   }
   await wait(10_000);
@@ -70,9 +72,42 @@ while (Date.now() < deadline) {
 
 if (!readyRevision) fail('the target revision did not become healthy before the deployment timeout');
 
+// Name the healthy revision instead of using "latest". A concurrent,
+// unhealthy image-only rollout must never receive traffic by accident.
+azure([
+  'containerapp', 'ingress', 'traffic', 'set',
+  '--resource-group', resourceGroup,
+  '--name', appName,
+  '--revision-weight', readyTrafficTarget,
+  '--output', 'none'
+]);
+
+let servingRevision;
+while (Date.now() < deadline) {
+  const app = JSON.parse(
+    azure(['containerapp', 'show', '--resource-group', resourceGroup, '--name', appName, '--output', 'json'])
+  );
+  const revisions = JSON.parse(
+    azure(['containerapp', 'revision', 'list', '--resource-group', resourceGroup, '--name', appName, '--output', 'json'])
+  );
+  const rollout = inspectRollout(app, revisions, image);
+  if (rollout.trafficConverged && rollout.readyRevision?.properties?.replicas === 1) {
+    validateTopology({ properties: { template: app.properties?.template } });
+    validateTopology({ properties: { template: rollout.readyRevision.properties?.template } });
+    servingRevision = rollout.readyRevision;
+    break;
+  }
+  await wait(5_000);
+}
+
+if (!servingRevision) {
+  fail('the healthy target revision did not become the sole 100% traffic target before the deployment timeout');
+}
+
 console.log(JSON.stringify({
   app: appName,
   image,
-  revision: readyRevision.name,
-  message: 'Applied the checked-in durable topology to a healthy revision. Run verify:deployment with the expected build SHA.'
+  revision: servingRevision.name,
+  trafficWeight: 100,
+  message: 'Applied the checked-in durable topology and assigned all traffic to its healthy revision. Run verify:deployment with the expected build SHA.'
 }, null, 2));

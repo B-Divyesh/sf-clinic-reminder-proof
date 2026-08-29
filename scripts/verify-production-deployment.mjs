@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { validateTopology } from './containerapp-topology.mjs';
 
 const resourceGroup = process.env.REMINDER_PROOF_RESOURCE_GROUP ?? 'sociobot';
 const appName = process.env.REMINDER_PROOF_APP_NAME ?? 'sf-clinic-reminder-proof';
@@ -21,6 +22,7 @@ function requireEqual(actual, expected, description) {
 
 const app = JSON.parse(azure(['containerapp', 'show', '--resource-group', resourceGroup, '--name', appName, '--output', 'json']));
 const template = app.properties?.template;
+validateTopology({ properties: { template } });
 requireEqual(template?.scale?.minReplicas, 1, 'minimum replica count');
 requireEqual(template?.scale?.maxReplicas, 1, 'maximum replica count');
 
@@ -49,7 +51,9 @@ const revisions = JSON.parse(azure(['containerapp', 'revision', 'list', '--resou
 const serving = revisions.filter((revision) => revision.properties?.active && revision.properties?.trafficWeight > 0);
 requireEqual(serving.length, 1, 'traffic-bearing revision count');
 requireEqual(serving[0]?.name, app.properties?.latestReadyRevisionName, 'serving revision');
+requireEqual(serving[0]?.properties?.trafficWeight, 100, 'serving revision traffic weight');
 requireEqual(serving[0]?.properties?.replicas, 1, 'serving replica count');
+validateTopology({ properties: { template: serving[0]?.properties?.template } });
 
 const health = await fetch(`${liveUrl}/health`);
 if (!health.ok) fail(`live health returned ${health.status}`);
@@ -57,7 +61,7 @@ const healthBody = await health.json();
 if (expectedBuildSha && healthBody.build_sha !== expectedBuildSha) {
   fail(`live build identity; expected ${expectedBuildSha}, got ${healthBody.build_sha}`);
 }
-const image = template?.containers?.find((container) => container.name === 'app')?.image;
+const image = serving[0]?.properties?.template?.containers?.find((container) => container.name === 'app')?.image;
 if (expectedBuildSha && !image?.endsWith(`:${expectedBuildSha}`)) {
   fail(`live image identity; expected a tag ending in ${expectedBuildSha}, got ${image ?? 'none'}`);
 }

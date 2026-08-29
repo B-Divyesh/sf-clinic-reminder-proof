@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import { effectiveConsent, foldReminderOutcome, stateCopy } from '../apps/web/src/lib/reminder';
-import { buildTopologyPatch } from '../scripts/containerapp-topology.mjs';
+import { buildTopologyPatch, inspectRollout } from '../scripts/containerapp-topology.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
@@ -195,6 +195,46 @@ describe('planning scaffold contracts', () => {
         { volumeName: 'clinic-backups', mountPath: '/backups' }
       ]
     });
+  });
+
+  test('@regression:qa13-01 a healthy durable revision at zero traffic cannot complete deployment', () => {
+    const image = 'sociobotregistry.azurecr.io/sf-clinic-reminder-proof:4ee36ffaa1496e94ebdb0f0b0fc17b907f824372';
+    const app = {
+      properties: {
+        latestReadyRevisionName: 'sf-clinic-reminder-proof--0000040'
+      }
+    };
+    const revisions = [
+      {
+        name: 'sf-clinic-reminder-proof--0000040',
+        properties: {
+          active: true,
+          healthState: 'Healthy',
+          trafficWeight: 0,
+          template: { containers: [{ name: 'app', image }] }
+        }
+      },
+      {
+        name: 'sf-clinic-reminder-proof--0000041',
+        properties: {
+          active: true,
+          healthState: 'Unhealthy',
+          trafficWeight: 100,
+          template: {
+            containers: [{ name: 'app', image: 'sociobotregistry.azurecr.io/sf-clinic-reminder-proof:85fbd01045e2' }]
+          }
+        }
+      }
+    ];
+
+    const before = inspectRollout(app, revisions, image);
+    expect(before.readyRevision?.name).toBe('sf-clinic-reminder-proof--0000040');
+    expect(before.trafficConverged).toBe(false);
+    expect(before.trafficTarget).toBe('sf-clinic-reminder-proof--0000040=100');
+
+    revisions[0].properties.trafficWeight = 100;
+    revisions[1].properties.trafficWeight = 0;
+    expect(inspectRollout(app, revisions, image).trafficConverged).toBe(true);
   });
 
   test('the container build context excludes Git metadata', async () => {

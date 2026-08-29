@@ -77,3 +77,39 @@ export function buildTopologyPatch(currentApp, topologyDocument, image) {
     }
   };
 }
+
+function revisionImage(revision) {
+  return revision?.properties?.template?.containers?.find((container) => container.name === 'app')?.image;
+}
+
+/**
+ * Inspect the control-plane state after a rollout. Azure can keep an
+ * unhealthy latest revision at 100% in its traffic metadata while requests
+ * fall back to the previous healthy revision. A rollout is complete only when
+ * the exact healthy revision is also the sole declared traffic target.
+ */
+export function inspectRollout(app, revisions, image) {
+  if (!Array.isArray(revisions)) throw new Error('Container App revisions must be an array');
+
+  const readyRevision = revisions.find((revision) =>
+    revision.name === app?.properties?.latestReadyRevisionName
+      && revision.properties?.healthState === 'Healthy'
+      && revisionImage(revision) === image
+  );
+  const trafficRevisions = revisions.filter(
+    (revision) => revision.properties?.active && revision.properties?.trafficWeight > 0
+  );
+  const trafficConverged = Boolean(
+    readyRevision
+      && trafficRevisions.length === 1
+      && trafficRevisions[0].name === readyRevision.name
+      && trafficRevisions[0].properties?.trafficWeight === 100
+  );
+
+  return {
+    readyRevision,
+    trafficRevisions,
+    trafficConverged,
+    trafficTarget: readyRevision ? `${readyRevision.name}=100` : undefined
+  };
+}
