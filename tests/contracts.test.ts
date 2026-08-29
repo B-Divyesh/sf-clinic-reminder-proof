@@ -4,6 +4,7 @@ import { describe, expect, test } from 'vitest';
 import { effectiveConsent, foldReminderOutcome, stateCopy } from '../apps/web/src/lib/reminder';
 import { buildTopologyPatch, inspectRollout } from '../scripts/containerapp-topology.mjs';
 import { assertPublicBuildIdentity, buildShaFromImage } from '../scripts/deployment-identity.mjs';
+import { resolveCheckedOutSourceCommit } from '../scripts/source-commit.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
@@ -262,6 +263,21 @@ describe('planning scaffold contracts', () => {
       healthBody: { build_sha: candidate },
       frontEndSource: `const buildSha = '${candidate}'; render('Build ' + buildSha.slice(0, 7));`
     }, candidate)).toBe(candidate);
+  });
+
+  test('@regression:qa15-04 deployment claim derives the checked-out candidate instead of pinning an older build', async () => {
+    const claims = JSON.parse(await readRepositoryFile('.factory/claims.json')) as Array<{ id: string; test: string }>;
+    const topologyClaim = claims.find(({ id }) => id === 'single-replica-durable-topology');
+
+    expect(topologyClaim?.test).toContain('npm run verify:deployment:current');
+    expect(topologyClaim?.test).not.toMatch(/EXPECTED_BUILD_SHA=[a-f0-9]{40}/i);
+    expect(resolveCheckedOutSourceCommit(() => ({
+      status: 0,
+      stdout: '0123456789abcdef0123456789abcdef01234567\n',
+      stderr: ''
+    }) as never)).toBe('0123456789abcdef0123456789abcdef01234567');
+    expect(() => resolveCheckedOutSourceCommit(() => ({ status: 1, stdout: '', stderr: 'not a git repository' }) as never))
+      .toThrow('cannot resolve the checked-out source commit: not a git repository');
   });
 
   test('the container build context excludes Git metadata', async () => {

@@ -213,7 +213,7 @@
     "id": "single-replica-durable-topology",
     "claim": "Production configuration uses one replica and mounts separate durable and backup shares.",
     "where": "README, operations guide, deployment configuration",
-    "test": "npm run test:e2e -- --grep @claim:single-replica-durable-topology && EXPECTED_BUILD_SHA=e8311677822d4a60183b9efcd5aab8980fc2b200 npm run verify:deployment",
+    "test": "npm run test:e2e -- --grep @claim:single-replica-durable-topology && npm run verify:deployment:current",
     "sandbox": "assert the checked-in Container Apps template has one min/max replica and two Azure Files mounts, then inspect the active Azure revision and issue six same-client demo creations; requests one through five must pass and request six must return 429 with Retry-After"
   }
 ]
