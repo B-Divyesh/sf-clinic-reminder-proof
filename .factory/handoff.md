@@ -1,49 +1,56 @@
-# Verification 11 handoff — Reminder Proof
+# Repair 7 handoff — Reminder Proof
 
 Date: 2026-08-29 UTC
-Work order: `clinic-reminder-proof-verify-11`
-Candidate: `4b07dd38cae3bb33530eca8704aff3f9b243cbfb`
+Work order: `clinic-reminder-proof-repair-7`
+Base verifier report: [verification-11.md](verification-11.md)
+Repair commit: `aae2ef63533d5daf18c175feabb03aa482152d9f`
 Live URL: <https://clinic-reminder-proof.sociobot.in>
 
-## Status: FAIL
+## Status: PASS
 
-Do not release or accept real clinic data. The exact candidate is live and the application code passes its local gates, but production is running three replicas with no durable or backup volume mounts. This makes clinic state and generated keys container-local and multiplies the per-client rate allowance. Five mobile demo evidence links also miss the 44 px touch-target requirement.
+All QA11 release blockers are repaired, committed, pushed, deployed, and verified on the active production revision. The app is now safe to continue independent verification; no real clinic data, patient data, provider credential, or payment was used during this repair.
 
-Full evidence and reproduction details are in [verification-11.md](verification-11.md).
+## Repairs
 
-## Release blockers
+1. **QA11-01 — durable single-owner deployment**
+   - Built and pushed `aae2ef6` to `origin/main`.
+   - Added a production mount guard. The container image sets `REQUIRE_DURABLE_MOUNTS=1`; it refuses startup unless `/durable` and `/backups` are real mounts, preventing a future topology drift from silently accepting clinic state on ephemeral storage.
+   - Added `npm run verify:deployment`. It inspects the active Container Apps revision, validates the exact Azure Files bindings and one-replica scale, checks live build identity, and proves the sixth same-client demo creation returns `429` with `Retry-After`.
+   - Updated the declared topology claim so it runs both the checked-in-template assertion and the live deployment verifier.
+   - ACR build `ch10u` succeeded from the `.git`-excluded source archive. Deployed revision `sf-clinic-reminder-proof--0000038` has image `sociobotregistry.azurecr.io/sf-clinic-reminder-proof:aae2ef63533d`, `minReplicas=1`, `maxReplicas=1`, 100% latest traffic, and both mounts.
+   - Live `npm run verify:deployment` returned five `200`s, then `429`, `Retry-After: 3599`; `/health` reports the full repair SHA.
+   - Azure in-container mount evidence showed CIFS shares at `/durable` and `/backups`. A uniquely named zero-data probe was created on both shares, the active revision was restarted, and Azure Files reported both probes still present. Both probe files were then deleted and verified absent. The existing Rust fixture regression continues to verify signed managed-state backup/restore.
 
-1. **Critical — deployment topology:** active revision `sf-clinic-reminder-proof--0000037` reports image `4b07dd38cae3`, three replicas, `maxReplicas=3`, `volumes=null`, and `mounts=null`. The repository requires one replica plus Azure Files at `/durable` and `/backups`.
-2. **Observed enforcement failure:** one client received 15 successful demo-workspace creations; only request 16 returned 429 with `Retry-After: 3599`. The documented allowance is five, so request six must return 429.
-3. **Medium — mobile target size:** all five demo **View evidence** links measure 92×18 CSS px at 390 px, below the required 44×44 px.
+2. **QA11-02 — 390 px evidence-link targets**
+   - Added the `evidence-link` control treatment: inline flex, at least 44×44 CSS px, with the existing designed focus ring preserved.
+   - Added `@regression:qa11-02`, which opens the real demo at 390×844 and measures every visible demo link, button, and select. All ten controls meet both 44 px dimensions.
 
-## What passed
+## Verification evidence
 
-- Cold first-read and one-click sample demo gate.
-- Clean install and all 31 declared claim commands locally.
-- `npm test`: 9 Vitest, 33 Rust, 39 Playwright.
-- `npm run check`: Svelte, rustfmt, and Clippy.
-- `npm run build`: web `dist/` and release API.
-- Live `/health` and local/live JS/CSS hashes match the candidate.
-- Demo job flow, invalid-input recovery, sign-in redirect, privacy request log, headers, caching, responsive reflow, reduced motion, keyboard skip path, and zero serious/critical axe findings.
-- Mobile Lighthouse: 99 performance, 100 accessibility, 100 best practices, 100 SEO; LCP 1.50 s, TBT 115 ms, CLS 0.00074.
+- Clean install: `npm ci` installed 87 locked packages; audit reported zero vulnerabilities.
+- Local complete suite: `npm test` passed 9 Vitest tests, 34 Rust tests, and 40 Chromium tests.
+- Exact claim sweep: all 31 `.factory/claims.json` commands passed independently in manifest order, including the production topology claim.
+- `npm run check`: Svelte 0 errors/0 warnings, rustfmt clean, Clippy warnings denied.
+- `npm run build`: produced `dist/` and `target/release/reminder-proof-api`; entry JS is 28.63 KB gzip and CSS 5.54 KB gzip.
+- Release binary test: with only `PORT=4811`, `/health` returned `{"status":"ok","build_sha":"dev"}` and startup generated a local key without printing it.
+- Container build: ACR build `ch10u` passed using the multi-stage Dockerfile and no Git metadata.
+- Live browser: `PLAYWRIGHT_BASE_URL=https://clinic-reminder-proof.sociobot.in npm run test:e2e` passed all 40 desktop/mobile, keyboard, privacy, offline-read, response-policy, routing, and reduced-motion checks.
+- Accessibility: the production Playwright axe audit passed on seven public routes in light and dark themes with zero serious/critical findings. The direct axe CLI cannot launch the preinstalled Playwright Chromium through its Selenium driver here; the repository's Playwright axe integration is the equivalent supported check.
+- URL verification: `/opt/fleet/lib/verify-url.sh` passed live with 200, title, `lang=en`, one H1, main landmark, image alt coverage, labeled controls, and zero console errors.
+- Live identity smoke: the Microsoft sign-in button reached `sociobotcustomers.ciamlogin.com/35c6fe40-0ec0-46b6-98c6-213ad4de6650/oauth2/v2.0/authorize` with no callback-registration error.
+- Live Lighthouse: Performance 99, Accessibility 100, Best Practices 100, SEO 100; FCP 1.38 s, LCP 1.445 s, TBT 79 ms, CLS 0.000742.
 
-## Required next steps
-
-1. Apply `deployment/containerapp.json` to a new production revision: exactly one replica and both Azure Files mounts.
-2. Confirm the active revision itself—not only the checked-in file—shows `minReplicas=1`, `maxReplicas=1`, `/durable`, and `/backups` with 100% traffic.
-3. Re-run the declared live rate claim and confirm requests 1–5 are accepted and request six is 429 with `Retry-After`.
-4. Prove a signed managed fixture persists through replica replacement and restores from the mounted backup pair.
-5. Increase the five ledger evidence-link hit areas to at least 44×44 px and add an all-controls mobile target-size test.
-6. Repeat independent verification before onboarding a clinic.
-
-## Reproduce local gates
+## Run and verify
 
 ```sh
 npm ci
 npm test
 npm run check
 npm run build
+EXPECTED_BUILD_SHA=aae2ef63533d5daf18c175feabb03aa482152d9f npm run verify:deployment
 ```
 
-No product code was modified. Only this handoff and `.factory/verification-11.md` were added/updated by the verifier.
+## Known limits and next steps
+
+- The repair used fictional demo data and fixture identities only. Before a clinic onboards, complete its normal consent, provider credential, data-retention, and operational-backup review.
+- Keep `maxReplicas` at one until the managed SQLite and in-process rate limiter are replaced by shared services. The mount guard and `verify:deployment` command now make any accidental drift visible and fail-safe.
