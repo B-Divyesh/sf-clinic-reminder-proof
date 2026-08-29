@@ -107,6 +107,10 @@ Headings, inventory statements, and every prose sentence are included. Commands 
 | 6 | The application runs without root privileges. | Pass; F-1-8 |
 | 10 | Recovery steps and the restore regression are documented in `.factory/operations.md`. | Pass |
 | 14 | Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Sociobot Entra SPA before sign-in is opened to clinics. | Pass |
+| 12 | The production image refuses to start when either required share is missing. | Pass; `single-replica-durable-topology` |
+| 18 | Use `npm run deploy:container -- --image <registry/image:tag>` for every Container Apps image rollout; it reapplies the checked-in mounts and one-replica boundary. | Pass; `single-replica-durable-topology` |
+| 11 | The command waits until that exact healthy revision has all traffic. | Pass; `single-replica-durable-topology` |
+| 21 | After deployment, run `npm run verify:deployment` with Azure access to check the active revision, mounts, replica count, and six-request rate limit. | Pass; `rate-limit-policy`, `single-replica-durable-topology` |
 | 3 | Clinic integration contract | Pass; heading |
 | 8 | All clinic routes require an Entra bearer token. | Pass |
 | 13 | The stable `oid` claim owns the workspace; email is never an identity key. | Pass |
@@ -132,6 +136,7 @@ Headings, inventory statements, and every prose sentence are included. Commands 
 | 21 | The multi-stage Dockerfile builds the web output and API without Git metadata, runs as a non-root user, and listens on `PORT`. | Pass |
 | 7 | The factory deploys the container to `https://clinic-reminder-proof.sociobot.in`. | Pass |
 | 14 | Do not put messaging-provider keys, clinic data, payments, or Entra configuration in this repository. | Pass |
+| 19 | After pushing an image to the factory registry, deploy it with the checked-in topology rather than an image-only update. | Pass; `single-replica-durable-topology` |
 | 3 | Privacy and terms | Pass; heading |
 | 9 | The public pages are available at `/privacy` and `/terms`. | Pass |
 | 5 | The demo uses fictional aliases. | Pass |
