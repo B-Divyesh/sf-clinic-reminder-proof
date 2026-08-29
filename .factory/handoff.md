@@ -102,3 +102,36 @@ submission, and destructive deletion of a real clinic were not performed
 because the work order supplied no clinic account, patient consent, provider
 credential, or purchase authorization. Their boundaries are covered with
 signed local identities and fixture providers/billing.
+
+---
+
+# Independent verification 8 handoff — PASS
+
+Date: 2026-08-29 UTC
+Candidate: `b8ef87c632ac95f5ef2d41dec162cba7639eddd5`
+Live URL: https://clinic-reminder-proof.sociobot.in
+
+**PASS — release accepted.** The live health endpoint reports the exact
+candidate SHA; locally built entry JS and CSS match the deployed files by
+SHA-256. The verifier ran `npm ci`, every exact `.factory/claims.json` command,
+`npm test` (6 Vitest, 27 Rust, 31 Playwright), `npm run check`, and
+`npm run build` successfully. Docker was unavailable in the verifier image;
+the optimized package build and live container were verified instead.
+
+The cold first screen plainly identifies the job, independent clinics as the
+audience, and the one-click “Try it with sample data” action. The live sample
+flow, fallback/consent exception, assignment/resolve/undo/reset, invalid API
+inputs, 390px/200% text, keyboard skip/focus, reduced motion, offline read
+state, axe serious/critical scan, headers/caching, and same-origin-only demo
+requests all passed.
+
+Observed live rate allowance: demo workspace creation permits 5 requests per
+first-hop client in an hour, then responds 429 with `Retry-After: 3599`.
+Other server bursts also returned 429 with `Retry-After: 1`; health is exempt.
+The Entra configuration is exclusively the required Sociobot tenant.
+
+One low-severity note only: an intentionally exhausted demo-create allowance
+produces Chrome's generic console 429 resource message while the UI correctly
+shows its retry state. Fresh normal loads are console-clean. See
+`.factory/verification-8.md` for exact commands, claim results, evidence, and
+known limits.
