@@ -46,16 +46,20 @@ for (const expected of [
 }
 
 const revisions = JSON.parse(azure(['containerapp', 'revision', 'list', '--resource-group', resourceGroup, '--name', appName, '--output', 'json']));
-const active = revisions.filter((revision) => revision.properties?.active);
-requireEqual(active.length, 1, 'active revision count');
-requireEqual(active[0]?.name, app.properties?.latestReadyRevisionName, 'active revision');
-requireEqual(active[0]?.properties?.replicas, 1, 'active replica count');
+const serving = revisions.filter((revision) => revision.properties?.active && revision.properties?.trafficWeight > 0);
+requireEqual(serving.length, 1, 'traffic-bearing revision count');
+requireEqual(serving[0]?.name, app.properties?.latestReadyRevisionName, 'serving revision');
+requireEqual(serving[0]?.properties?.replicas, 1, 'serving replica count');
 
 const health = await fetch(`${liveUrl}/health`);
 if (!health.ok) fail(`live health returned ${health.status}`);
 const healthBody = await health.json();
 if (expectedBuildSha && healthBody.build_sha !== expectedBuildSha) {
   fail(`live build identity; expected ${expectedBuildSha}, got ${healthBody.build_sha}`);
+}
+const image = template?.containers?.find((container) => container.name === 'app')?.image;
+if (expectedBuildSha && !image?.endsWith(`:${expectedBuildSha}`)) {
+  fail(`live image identity; expected a tag ending in ${expectedBuildSha}, got ${image ?? 'none'}`);
 }
 
 const randomOctet = () => Math.floor(Math.random() * 254) + 1;
@@ -76,9 +80,9 @@ if (!retryAfter || Number(retryAfter) <= 0) fail(`sixth demo creation Retry-Afte
 
 console.log(JSON.stringify({
   app: appName,
-  revision: active[0].name,
-  image: template.containers.find((container) => container.name === 'app')?.image,
-  replicas: active[0].properties.replicas,
+  revision: serving[0].name,
+  image,
+  replicas: serving[0].properties.replicas,
   buildSha: healthBody.build_sha,
   rateStatuses,
   retryAfter

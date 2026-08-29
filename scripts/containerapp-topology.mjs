@@ -59,14 +59,15 @@ export function buildTopologyPatch(currentApp, topologyDocument, image) {
     properties: {
       template: {
         ...currentTemplate,
-        containers: [
-          {
+        containers: currentTemplate.containers.map((container) => {
+          if (container.name !== 'app') return container;
+          return {
             ...currentContainer,
             name: 'app',
             image,
-            volumeMounts: topology.containers.find((container) => container.name === 'app').volumeMounts
-          }
-        ],
+            volumeMounts: topology.containers.find((item) => item.name === 'app').volumeMounts
+          };
+        }),
         volumes: topology.volumes,
         scale: {
           ...currentTemplate.scale,

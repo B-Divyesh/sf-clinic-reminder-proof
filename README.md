@@ -85,7 +85,6 @@ topology rather than an image-only update:
 npm run deploy:container -- --image sociobotregistry.azurecr.io/sf-clinic-reminder-proof:<commit>
 EXPECTED_BUILD_SHA=<full-commit> npm run verify:deployment
 ```
-
 ## Privacy and terms
 
 The public pages are available at `/privacy` and `/terms`. The demo uses fictional aliases. Managed records contain only reminder operations data; clinics must not send clinical notes, diagnoses, or treatment details.

@@ -167,38 +167,38 @@ describe('planning scaffold contracts', () => {
     const brokenTemplate = {
       properties: {
         template: {
-          containers: [
-            {
-              name: 'app',
-              image: 'sociobotregistry.azurecr.io/sf-clinic-reminder-proof:broken',
-              env: [{ name: 'PORT', value: '8080' }],
-              resources: { cpu: 0.5, memory: '1Gi' }
-            }
-          ],
+          containers: [{
+            name: 'app',
+            image: 'sociobotregistry.azurecr.io/sf-clinic-reminder-proof:a95a64b6f1cc',
+            env: [{ name: 'PORT', value: '8080' }],
+            resources: { cpu: 0.5, memory: '1Gi' }
+          }],
           scale: { minReplicas: 1, maxReplicas: 3, cooldownPeriod: 300 },
           volumes: null
         }
       }
     };
 
-    const patch = buildTopologyPatch(
-      brokenTemplate,
-      topology,
-      'sociobotregistry.azurecr.io/sf-clinic-reminder-proof:repair'
-    );
-    const template = patch.properties.template;
+    const image = 'sociobotregistry.azurecr.io/sf-clinic-reminder-proof:0123456789abcdef0123456789abcdef01234567';
+    const template = buildTopologyPatch(brokenTemplate, topology, image).properties.template;
     expect(template.scale).toMatchObject({ minReplicas: 1, maxReplicas: 1 });
-    expect(template.volumes).toEqual(expect.arrayContaining([
+    expect(template.volumes).toEqual([
       { name: 'clinic-data', storageType: 'AzureFile', storageName: 'clinic-reminder-proof-data' },
       { name: 'clinic-backups', storageType: 'AzureFile', storageName: 'clinic-reminder-proof-backups' }
-    ]));
+    ]);
     expect(template.containers[0]).toMatchObject({
-      image: 'sociobotregistry.azurecr.io/sf-clinic-reminder-proof:repair',
-      volumeMounts: expect.arrayContaining([
+      image,
+      env: [{ name: 'PORT', value: '8080' }],
+      resources: { cpu: 0.5, memory: '1Gi' },
+      volumeMounts: [
         { volumeName: 'clinic-data', mountPath: '/durable' },
         { volumeName: 'clinic-backups', mountPath: '/backups' }
-      ])
+      ]
     });
+  });
+
+  test('the container build context excludes Git metadata', async () => {
+    expect(await readRepositoryFile('.dockerignore')).toMatch(/^\.git$/m);
   });
 });
 
