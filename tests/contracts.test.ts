@@ -421,6 +421,78 @@ describe('planning scaffold contracts', () => {
     expect(rateClaim).not.toContain('198.18.${demoClient}');
   });
 
+  test('@regression:qa19-01 refuses the exact unsafe selected revision and requires latest-revision convergence', async () => {
+    const topology = JSON.parse(await readRepositoryFile('deployment/containerapp.json'));
+    const candidate = '9791736e1428961621a50ef8e9e1785c365e76b4';
+    const fullImage = `sociobotregistry.azurecr.io/sf-clinic-reminder-proof:${candidate}`;
+    const reportedApp = {
+      properties: {
+        latestRevisionName: 'sf-clinic-reminder-proof--0000056',
+        latestReadyRevisionName: 'sf-clinic-reminder-proof--0000055',
+        template: {
+          containers: [{
+            name: 'app',
+            image: `sociobotregistry.azurecr.io/sf-clinic-reminder-proof:${candidate.slice(0, 12)}`,
+            env: [{ name: 'PORT', value: '8080' }]
+          }],
+          scale: { minReplicas: 1, maxReplicas: 3 },
+          volumes: null
+        }
+      }
+    };
+    const reportedRevisions = [
+      {
+        name: 'sf-clinic-reminder-proof--0000055',
+        properties: {
+          active: true,
+          healthState: 'Healthy',
+          trafficWeight: 0,
+          replicas: 1,
+          template: {
+            containers: [{ name: 'app', image: fullImage }],
+            scale: { minReplicas: 1, maxReplicas: 1 },
+            volumes: topology.properties.template.volumes
+          }
+        }
+      },
+      {
+        name: 'sf-clinic-reminder-proof--0000056',
+        properties: {
+          active: true,
+          healthState: 'Unhealthy',
+          trafficWeight: 100,
+          replicas: 0,
+          template: reportedApp.properties.template
+        }
+      }
+    ];
+
+    expect(() => validateTopology(reportedApp)).toThrow(
+      'deployment topology must set minReplicas and maxReplicas to 1'
+    );
+    const rollout = inspectRollout(reportedApp, reportedRevisions, fullImage);
+    expect(rollout.readyRevision?.name).toBe('sf-clinic-reminder-proof--0000055');
+    expect(rollout.trafficConverged).toBe(false);
+    expect(rollout.latestRevisionConverged).toBe(false);
+
+    const repaired = buildTopologyPatch(reportedApp, topology, fullImage).properties.template;
+    expect(repaired).toMatchObject({
+      scale: { minReplicas: 1, maxReplicas: 1 },
+      volumes: [
+        { name: 'clinic-data', storageType: 'AzureFile', storageName: 'clinic-reminder-proof-data' },
+        { name: 'clinic-backups', storageType: 'AzureFile', storageName: 'clinic-reminder-proof-backups' }
+      ],
+      containers: [{
+        name: 'app',
+        image: fullImage,
+        volumeMounts: [
+          { volumeName: 'clinic-data', mountPath: '/durable' },
+          { volumeName: 'clinic-backups', mountPath: '/backups' }
+        ]
+      }]
+    });
+  });
+
   test('the container build context excludes Git metadata', async () => {
     expect(await readRepositoryFile('.dockerignore')).toMatch(/^\.git$/m);
   });

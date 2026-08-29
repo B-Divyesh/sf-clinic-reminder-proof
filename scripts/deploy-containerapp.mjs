@@ -73,7 +73,7 @@ while (Date.now() < deadline) {
   const rollout = inspectRollout(app, revisions, image);
   if (rollout.readyRevision) {
     validateTopology({ properties: { template: rollout.readyRevision.properties?.template } });
-    if (rollout.trafficConverged && rollout.readyRevision.properties?.replicas === 1) {
+    if (rollout.latestRevisionConverged && rollout.readyRevision.properties?.replicas === 1) {
       validateTopology({ properties: { template: app.properties?.template } });
       try {
         await fetchPublicBuildIdentity(liveUrl, expectedBuildSha);
@@ -89,7 +89,7 @@ while (Date.now() < deadline) {
 
 if (!servingRevision) {
   const publicIdentity = lastPublicIdentityError ? ` Public identity check: ${lastPublicIdentityError.message}` : '';
-  fail(`the target revision did not become healthy, receive sole 100% traffic, and serve its exact build before the deployment timeout.${publicIdentity}`);
+  fail(`the latest target revision did not become healthy, receive sole 100% traffic, and serve its exact build before the deployment timeout.${publicIdentity}`);
 }
 
 console.log(JSON.stringify({

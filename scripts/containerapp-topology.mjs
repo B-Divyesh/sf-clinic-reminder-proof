@@ -95,6 +95,9 @@ function revisionImage(revision) {
 export function inspectRollout(app, revisions, image) {
   if (!Array.isArray(revisions)) throw new Error('Container App revisions must be an array');
 
+  const latestRevision = revisions.find((revision) =>
+    revision.name === app?.properties?.latestRevisionName
+  );
   const readyRevision = revisions.find((revision) =>
     revision.name === app?.properties?.latestReadyRevisionName
       && revision.properties?.healthState === 'Healthy'
@@ -109,10 +112,22 @@ export function inspectRollout(app, revisions, image) {
       && trafficRevisions[0].name === readyRevision.name
       && trafficRevisions[0].properties?.trafficWeight === 100
   );
+  // In single revision mode Azure can leave a failed latest revision selected
+  // in traffic metadata while the ingress serves the prior ready revision.
+  // Do not treat that fallback as a completed release: the *latest* revision
+  // must be the same verified healthy, full-traffic revision.
+  const latestRevisionConverged = Boolean(
+    trafficConverged
+      && latestRevision?.name === readyRevision.name
+      && latestRevision.properties?.healthState === 'Healthy'
+      && revisionImage(latestRevision) === image
+  );
 
   return {
+    latestRevision,
     readyRevision,
     trafficRevisions,
-    trafficConverged
+    trafficConverged,
+    latestRevisionConverged
   };
 }

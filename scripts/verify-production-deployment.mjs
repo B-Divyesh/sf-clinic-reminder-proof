@@ -55,8 +55,10 @@ for (const expected of [
 const revisions = JSON.parse(azure(['containerapp', 'revision', 'list', '--resource-group', resourceGroup, '--name', appName, '--output', 'json']));
 const serving = revisions.filter((revision) => revision.properties?.active && revision.properties?.trafficWeight > 0);
 requireEqual(serving.length, 1, 'traffic-bearing revision count');
+requireEqual(serving[0]?.name, app.properties?.latestRevisionName, 'latest selected revision');
 requireEqual(serving[0]?.name, app.properties?.latestReadyRevisionName, 'serving revision');
 requireEqual(serving[0]?.properties?.trafficWeight, 100, 'serving revision traffic weight');
+requireEqual(serving[0]?.properties?.healthState, 'Healthy', 'serving revision health');
 requireEqual(serving[0]?.properties?.replicas, 1, 'serving replica count');
 validateTopology({ properties: { template: serving[0]?.properties?.template } });
 
