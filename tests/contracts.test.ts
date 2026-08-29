@@ -6,7 +6,7 @@ import { buildTopologyPatch, inspectRollout } from '../scripts/containerapp-topo
 import { assertPublicBuildIdentity, buildShaFromImage } from '../scripts/deployment-identity.mjs';
 import {
   assertDeploymentImageMatchesSource,
-  RELEASE_BUILD_INPUTS,
+  assertReleaseCheckoutReady,
   resolveCheckedOutSourceCommit
 } from '../scripts/source-commit.mjs';
 
@@ -269,7 +269,7 @@ describe('planning scaffold contracts', () => {
     }, candidate)).toBe(candidate);
   });
 
-  test('@regression:qa15-04 deployment claim derives the checked-out release candidate instead of pinning an older build', async () => {
+  test('@regression:qa15-04 deployment claim derives the exact checked-out candidate instead of pinning an older build', async () => {
     const claims = JSON.parse(await readRepositoryFile('.factory/claims.json')) as Array<{ id: string; test: string }>;
     const topologyClaim = claims.find(({ id }) => id === 'single-replica-durable-topology');
 
@@ -284,25 +284,9 @@ describe('planning scaffold contracts', () => {
       stderr: ''
       } as never;
     })).toBe('0123456789abcdef0123456789abcdef01234567');
-    expect(invoked[0]).toEqual(expect.arrayContaining([
-      'git',
-      'log',
-      '-1',
-      '--format=%H',
-      '--',
-      'Dockerfile',
-      'apps/web',
-      'services/api',
-      'deployment/containerapp.json',
-      'scripts/deploy-containerapp.mjs'
-    ]));
-    expect(RELEASE_BUILD_INPUTS).toEqual(expect.arrayContaining([
-      'deployment/containerapp.json',
-      'scripts/containerapp-topology.mjs',
-      'scripts/deploy-containerapp.mjs'
-    ]));
+    expect(invoked[0]).toEqual(['git', 'rev-parse', '--verify', 'HEAD']);
     expect(() => resolveCheckedOutSourceCommit(() => ({ status: 1, stdout: '', stderr: 'not a git repository' }) as never))
-      .toThrow('cannot resolve the checked-out release source commit: not a git repository');
+      .toThrow('cannot resolve the checked-out candidate commit: not a git repository');
   });
 
   test('@regression:v16-01 deploy rejects another full image tag before it can create an unsafe candidate revision', () => {
@@ -313,7 +297,88 @@ describe('planning scaffold contracts', () => {
     expect(() => assertDeploymentImageMatchesSource(
       'sociobotregistry.azurecr.io/sf-clinic-reminder-proof:76543210fedcba9876543210fedcba9876543210',
       source
-    )).toThrow(`deployment image build SHA must match the checked-out release source commit; expected ${source}`);
+    )).toThrow(`deployment image build SHA must match the checked-out candidate commit; expected ${source}`);
+  });
+
+  test('@regression:qa17-01 deployment requires the final clean candidate to be published', () => {
+    const source = '0123456789abcdef0123456789abcdef01234567';
+    const prior = '76543210fedcba9876543210fedcba9876543210';
+    const run = (_command: string, args: string[]) => {
+      if (args[0] === 'status') return { status: 0, stdout: '', stderr: '' } as never;
+      return { status: 0, stdout: `${source}\n`, stderr: '' } as never;
+    };
+
+    expect(assertReleaseCheckoutReady(source, run)).toBe(source);
+    expect(() => assertReleaseCheckoutReady(source, (_command, args) => {
+      if (args[0] === 'status') return { status: 0, stdout: ' M .factory/handoff.md\n', stderr: '' } as never;
+      return { status: 0, stdout: `${source}\n`, stderr: '' } as never;
+    })).toThrow('commit the final handoff before deployment');
+    expect(() => assertReleaseCheckoutReady(source, (_command, args) => {
+      if (args[0] === 'status') return { status: 0, stdout: '', stderr: '' } as never;
+      return { status: 0, stdout: `${prior}\n`, stderr: '' } as never;
+    })).toThrow(`must be pushed to origin/main before deployment; origin/main is ${prior}`);
+  });
+
+  test('@regression:qa17-02 rejects the reported unsafe candidate and stale public fallback', async () => {
+    const topology = JSON.parse(await readRepositoryFile('deployment/containerapp.json'));
+    const candidate = '3a341b7d34f6e734791ec37596295cda193374ed';
+    const prior = '2ec97d29b07279e15efb5e82caf002ffe63765e1';
+    const fullImage = `sociobotregistry.azurecr.io/sf-clinic-reminder-proof:${candidate}`;
+    const reportedApp = {
+      properties: {
+        latestReadyRevisionName: 'sf-clinic-reminder-proof--0000050',
+        template: {
+          containers: [{ name: 'app', image: `sociobotregistry.azurecr.io/sf-clinic-reminder-proof:${candidate.slice(0, 12)}` }],
+          scale: { minReplicas: 1, maxReplicas: 3 },
+          volumes: null
+        }
+      }
+    };
+    const reportedRevisions = [
+      {
+        name: 'sf-clinic-reminder-proof--0000050',
+        properties: {
+          active: true,
+          healthState: 'Healthy',
+          trafficWeight: 0,
+          template: { containers: [{ name: 'app', image: `registry/app:${prior}` }] }
+        }
+      },
+      {
+        name: 'sf-clinic-reminder-proof--0000051',
+        properties: {
+          active: true,
+          healthState: 'Unhealthy',
+          trafficWeight: 100,
+          template: reportedApp.properties.template
+        }
+      }
+    ];
+
+    expect(inspectRollout(reportedApp, reportedRevisions, fullImage)).toMatchObject({
+      readyRevision: undefined,
+      trafficConverged: false
+    });
+    expect(() => buildShaFromImage(reportedApp.properties.template.containers[0].image))
+      .toThrow('container image tag must be a full 40-character Git commit SHA');
+    expect(() => assertPublicBuildIdentity({
+      healthBody: { build_sha: prior },
+      frontEndSource: `const buildSha = '${prior}'; render('Build ' + buildSha.slice(0, 7));`
+    }, candidate)).toThrow(`live health build identity; expected ${candidate}, got ${prior}`);
+
+    const repaired = buildTopologyPatch(reportedApp, topology, fullImage).properties.template;
+    expect(repaired).toMatchObject({
+      scale: { minReplicas: 1, maxReplicas: 1 },
+      containers: [{
+        name: 'app',
+        image: fullImage,
+        volumeMounts: [
+          { volumeName: 'clinic-data', mountPath: '/durable' },
+          { volumeName: 'clinic-backups', mountPath: '/backups' }
+        ]
+      }]
+    });
+    expect(repaired.volumes).toHaveLength(2);
   });
 
   test('the container build context excludes Git metadata', async () => {

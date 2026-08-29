@@ -1,6 +1,6 @@
 # Product copy audit
 
-Status: reviewed after polish 3 on 2026-08-29. Counts are whitespace-delimited; routes, prices, and hyphenated terms count as one word.
+Status: reviewed after repair 13 on 2026-08-29. Counts are whitespace-delimited; routes, prices, and hyphenated terms count as one word.
 
 ## First screen
 
@@ -108,9 +108,12 @@ Headings, inventory statements, and every prose sentence are included. Commands 
 | 10 | Recovery steps and the restore regression are documented in `.factory/operations.md`. | Pass |
 | 14 | Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Sociobot Entra SPA before sign-in is opened to clinics. | Pass |
 | 12 | The production image refuses to start when either required share is missing. | Pass; `single-replica-durable-topology` |
-| 18 | Use `npm run deploy:container -- --image <registry/image:tag>` for every Container Apps image rollout; it reapplies the checked-in mounts and one-replica boundary. | Pass; `single-replica-durable-topology` |
-| 11 | The command waits until that exact healthy revision has all traffic. | Pass; `single-replica-durable-topology` |
-| 21 | After deployment, run `npm run verify:deployment` with Azure access to check the active revision, mounts, replica count, and six-request rate limit. | Pass; `rate-limit-policy`, `single-replica-durable-topology` |
+| 14 | Commit and push the final handoff before running `npm run deploy:container -- --image <registry/image:full-commit>`. | Pass; `@regression:qa17-01` |
+| 9 | The command rejects dirty, unpublished, short-tagged, or mismatched candidates. | Pass; `@regression:qa14-01`, `@regression:qa17-01` |
+| 8 | It reapplies the checked-in mounts and one-replica boundary. | Pass; `single-replica-durable-topology` |
+| 18 | It waits until that exact healthy revision has all traffic and serves its health and footer build identity. | Pass; `@regression:qa14-02`, `@regression:qa17-02` |
+| 9 | After deployment, run `npm run verify:deployment:current` with Azure access. | Pass; `single-replica-durable-topology` |
+| 14 | It checks the active revision, mounts, replica count, public identity, and six-request rate limit. | Pass; `rate-limit-policy`, `single-replica-durable-topology` |
 | 3 | Clinic integration contract | Pass; heading |
 | 8 | All clinic routes require an Entra bearer token. | Pass |
 | 13 | The stable `oid` claim owns the workspace; email is never an identity key. | Pass |
@@ -137,10 +140,10 @@ Headings, inventory statements, and every prose sentence are included. Commands 
 | 7 | The factory deploys the container to `https://clinic-reminder-proof.sociobot.in`. | Pass |
 | 14 | Do not put messaging-provider keys, clinic data, payments, or Entra configuration in this repository. | Pass |
 | 19 | After pushing an image to the factory registry, deploy it with the checked-in topology rather than an image-only update. | Pass; `single-replica-durable-topology` |
-| 22 | The command rejects short and mutable tags. | Pass; `single-replica-durable-topology`, `@regression:qa14-01` |
-| 21 | It waits until that exact healthy revision has all traffic and serves its health and footer build identity. | Pass; `single-replica-durable-topology`, `@regression:qa14-02` |
-| 18 | Build the image with its full 40-character source commit as the tag, then use `npm run deploy:container -- --image <registry/image:full-commit>` for every Container Apps rollout. | Pass; `single-replica-durable-topology`, `@regression:qa14-01` |
-| 17 | The command rejects short and mutable tags. | Pass; `single-replica-durable-topology`, `@regression:qa14-01` |
+| 9 | Commit the final handoff and push it to `origin/main`. | Pass; `@regression:qa17-01` |
+| 20 | Build that exact HEAD with its full 40-character commit as the tag, then use `npm run deploy:container -- --image <registry/image:full-commit>`. | Pass; `single-replica-durable-topology`, `@regression:qa14-01` |
+| 7 | The command rejects short and mutable tags. | Pass; `single-replica-durable-topology`, `@regression:qa14-01` |
+| 7 | It also rejects dirty or unpublished checkouts. | Pass; `@regression:qa17-01` |
 | 17 | After each rollout, run `EXPECTED_BUILD_SHA=<full-commit> npm run verify:deployment` from this repository with Azure access. | Pass; `single-replica-durable-topology`, `@regression:qa14-02` |
 | 3 | Privacy and terms | Pass; heading |
 | 9 | The public pages are available at `/privacy` and `/terms`. | Pass |

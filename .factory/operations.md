@@ -45,15 +45,17 @@ pair restore into a fresh data directory and reads the original clinic.
 
 ## Release topology check
 
-Build the image with its full 40-character source commit as the tag, then use
+Commit the final handoff and push it to `origin/main`. Build that exact HEAD
+with its full 40-character commit as the tag, then use
 `npm run deploy:container -- --image <registry/image:full-commit>` for every
 Container Apps rollout. The command rejects short and mutable tags. The deploy command reads
 `deployment/containerapp.json` and patches the full revision template, so an
 image update cannot omit the two Azure Files mounts or increase the replica
-limit. It preserves factory-managed ingress, domains, identity, and app-level
-settings. In single-revision mode, it waits for Azure to promote that exact
-healthy revision as the only 100% traffic target, then checks `/health` and
-the landing footer for the same build identity.
+limit. It also rejects dirty or unpublished checkouts. It preserves
+factory-managed ingress, domains, identity, and app-level settings. In
+single-revision mode, it waits for Azure to promote that exact healthy revision
+as the only 100% traffic target, then checks `/health` and the landing footer
+for the same build identity.
 
 After each rollout, run `EXPECTED_BUILD_SHA=<full-commit> npm run
 verify:deployment` from this repository with Azure access. It fails unless the
