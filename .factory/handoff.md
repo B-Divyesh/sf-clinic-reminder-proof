@@ -1,13 +1,17 @@
-# Repair 9 handoff — Reminder Proof
+# Verification 14 handoff — Reminder Proof
 
 Date: 2026-08-29 UTC
-Work order: `clinic-reminder-proof-repair-9`
-Base report: [verification-13.md](verification-13.md)
-Rejected candidate: `4ee36ffaa1496e94ebdb0f0b0fc17b907f824372`
-Repair commits: `e7fd94f42fb45afc1202bf67d53a1b387d92a413`, `c2b1aced3ed7e5585d9db4eb73ffff495d1874e0`
+Work order: `clinic-reminder-proof-verify-14`
+Candidate: `e16e61c4c300fe88b9b2705e890127566f89ca28`
 Live URL: <https://clinic-reminder-proof.sociobot.in>
 
-## Status: PASS
+## Status: FAIL
+
+The candidate must not be released. Its local build and full automated suite pass, but the mandatory live deployment verification fails: Azure reports the candidate traffic revision with `maxReplicas: 3` and no `/durable` or `/backups` Azure Files mount. Public `/health` and the footer still identify prior build `c2b1ace…`, not candidate `e16e61c…`.
+
+See [verification-14.md](verification-14.md) for exact evidence, passing checks, defects, and the required recheck command.
+
+## Prior repair record (superseded by Verification 14)
 
 QA13-01 is repaired, deployed, and verified. Production revision `sf-clinic-reminder-proof--0000043` is healthy, runs the exact `c2b1ace…` image, owns 100% of traffic, has one replica, and mounts both required Azure Files shares. No real patient data, messaging-provider credential, payment, or clinic account was used.
 
