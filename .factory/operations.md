@@ -1,23 +1,37 @@
 # Reminder Proof production storage and recovery
 
-The container app deliberately runs exactly one replica. This gives the
-in-process rate governor one service-wide state owner. Do not raise
-`maxReplicas` above one without moving rate-limit state to a shared service.
+The Container App runs exactly one replica. This is the consistency boundary
+for SQLite and the in-process per-client rate limiter. Do not raise
+`maxReplicas` until both have moved to shared services.
 
-An Azure Files share named `sf-clinic-reminder-proof-data` is provisioned for
-the service. Its SMB mount cannot currently be prepared by the non-root runtime
-image, so it is not attached to the running revision. Do not accept real clinic
-records until a compatible durable mount or shared database is in place.
+## Durable mounts
+
+`deployment/containerapp.json` attaches two independent ReadWrite Azure Files
+shares directly to the non-root application process:
+
+- `clinic-reminder-proof-data` at `/data` holds `clinic-data.sqlite3` and its
+  generated AES-256 key.
+- `clinic-reminder-proof-backups` at `/backups` holds the latest consistent
+  database backup and matching key.
+
+No init container, `chmod`, root process, or mount preparation is required.
+Startup fails before opening the listener if either location is not writable.
+Every successful workspace mutation uses SQLite's online backup API while the
+database mutex is held, then atomically replaces the latest backup pair.
 
 ## Backup and restore
 
-Once a compatible durable mount is enabled, configure daily share snapshots
-with 30 days of retention. Restore is a controlled operation: scale the app to
-zero, restore both `clinic-data.sqlite3` and `clinic-data.key` from the same
-snapshot into the share, confirm their owner-only modes, then return the app to
-one replica. Never restore the database without its matching encryption key.
+The application backup has an RPO of one successful workspace mutation.
+Enable daily Azure Files share snapshots with 30-day retention on both shares
+for a second recovery layer. The data and backup shares are separate so a bad
+database write does not overwrite the only recoverable copy.
 
-After each restore, request `/health`, sign in with a non-production fixture
-tenant, and verify a previously saved workspace plus its export. The recovery
-objective is RPO 24 hours and RTO 4 hours. The deployment configuration is
-`deployment/containerapp.json`.
+To restore, scale the app to zero, copy
+`clinic-data.latest.sqlite3` and `clinic-data.latest.key` from the backup share
+to `clinic-data.sqlite3` and `clinic-data.key` on the data share, then return
+the app to one replica. Never restore a database without its matching key.
+
+After restore, request `/health`, sign in with a non-production account, and
+verify the restored workspace and export. The automated regression
+`managed_backup_pair_restores_after_database_loss` performs the same backup
+pair restore into a fresh data directory and reads the original clinic.

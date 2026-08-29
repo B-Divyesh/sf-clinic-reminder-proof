@@ -177,15 +177,17 @@ test('@claim:request-protection API writes enforce JSON and 16 KB body limits wi
 });
 
 test('@claim:rate-limit-policy Demo creation is limited by the ingress client address and returns Retry-After.', async ({ page }) => {
-  let last: import('@playwright/test').APIResponse | undefined;
+  const stableClient = `198.18.${demoClient}.17`;
+  const responses: import('@playwright/test').APIResponse[] = [];
   for (let request = 0; request < 6; request += 1) {
-    last = await page.request.post('/api/v1/demo/workspaces', {
-      headers: { 'x-forwarded-for': `192.0.2.${request}, 203.0.113.220` }
-    });
+    responses.push(await page.request.post('/api/v1/demo/workspaces', {
+      headers: { 'x-forwarded-for': `${stableClient}, 203.0.113.${request}` }
+    }));
   }
-  expect(last?.status()).toBe(429);
-  expect(Number(last?.headers()['retry-after'])).toBeGreaterThan(0);
-  expect(await last?.json()).toMatchObject({ code: 'rate_limited' });
+  expect(responses.slice(0, 5).map((response) => response.status())).toEqual([200, 200, 200, 200, 200]);
+  expect(responses[5].status()).toBe(429);
+  expect(Number(responses[5].headers()['retry-after'])).toBeGreaterThan(0);
+  expect(await responses[5].json()).toMatchObject({ code: 'rate_limited' });
 });
 
 test('@claim:security-headers Responses use the documented browser security and cache headers.', async ({ page }) => {

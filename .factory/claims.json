@@ -122,14 +122,14 @@
     "id": "managed-provider-fallback-receipt",
     "claim": "A rejected approved channel tries the next consented provider and a signed receipt records delivery.",
     "where": "Start for real, clinic workspace, README",
-    "test": "cargo test --manifest-path services/api/Cargo.toml managed_claim_provider_and_billing_fixtures_complete_observable_outcomes",
+    "test": "npm run test:e2e -- --grep @claim:managed-provider-fallback-receipt",
     "sandbox": "a fixture HTTP SMS provider rejects, fixture email accepts, the persisted timeline records both outcomes in order, and a receipt changes the reminder to delivered"
   },
   {
     "id": "managed-billing-return",
     "claim": "Clinic checkout is hosted by Sociobot and a valid return activates the clinic subscription.",
     "where": "Start for real, clinic workspace, README",
-    "test": "cargo test --manifest-path services/api/Cargo.toml managed_claim_provider_and_billing_fixtures_complete_observable_outcomes",
+    "test": "npm run test:e2e -- --grep @claim:managed-billing-return",
     "sandbox": "a fixture Sociobot checkout responds with a redirect, the same-origin route returns only that URL, and its fixture verification response activates the saved subscription"
   }
 ]

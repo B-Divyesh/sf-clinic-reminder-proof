@@ -23,13 +23,14 @@ ARG GIT_SHA=dev
 ARG SOURCE_COMMIT=dev
 RUN groupadd --system reminderproof \
   && useradd --system --gid reminderproof --create-home reminderproof \
-  && mkdir /data \
-  && chown reminderproof:reminderproof /data
+  && mkdir /data /backups \
+  && chown reminderproof:reminderproof /data /backups
 WORKDIR /app
 COPY --from=api-build /source/target/release/reminder-proof-api /usr/local/bin/reminder-proof-api
 COPY --from=web-build /source/dist ./dist
 USER reminderproof
 ENV PORT=8080
 ENV DATA_DIR=/data
+ENV BACKUP_DIR=/backups
 EXPOSE 8080
 CMD ["reminder-proof-api"]

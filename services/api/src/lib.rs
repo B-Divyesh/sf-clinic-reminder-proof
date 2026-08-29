@@ -422,6 +422,13 @@ mod tests {
             deployment["properties"]["template"]["volumes"][0]["storageName"],
             "clinic-reminder-proof-data"
         );
+        assert_eq!(
+            deployment["properties"]["template"]["volumes"][1]["storageName"],
+            "clinic-reminder-proof-backups"
+        );
+        assert!(deployment["properties"]["template"]
+            .get("initContainers")
+            .is_none());
     }
 
     #[tokio::test]

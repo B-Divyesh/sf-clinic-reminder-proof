@@ -24,7 +24,7 @@ use axum::{
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use hmac::{Hmac, Mac};
 use rand::RngCore;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, MAIN_DB};
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::Sha256;
@@ -48,6 +48,8 @@ pub struct ClinicState {
 struct ClinicStore {
     connection: Arc<Mutex<Connection>>,
     cipher: Arc<Aes256Gcm>,
+    key_path: Arc<PathBuf>,
+    backup_dir: Arc<PathBuf>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -277,12 +279,23 @@ impl From<ClinicWorkspace> for WorkspaceResponse {
 
 impl ClinicState {
     pub fn from_env() -> Result<Self, String> {
-        Self::new(data_dir(), AuthService::from_env(), None, None)
+        let dir = data_dir();
+        let backups = env::var_os("BACKUP_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                if dir == Path::new("/data") {
+                    PathBuf::from("/backups")
+                } else {
+                    dir.join("backups")
+                }
+            });
+        Self::new(dir, backups, AuthService::from_env(), None, None)
     }
 
     #[cfg(test)]
     pub fn for_tests(path: PathBuf) -> Result<Self, String> {
-        Self::new(path, AuthService::for_tests(), None, None)
+        let backups = path.join("backups");
+        Self::new(path, backups, AuthService::for_tests(), None, None)
     }
 
     #[cfg(test)]
@@ -291,8 +304,10 @@ impl ClinicState {
         billing_base_url: String,
         provider_fixture_base_url: String,
     ) -> Result<Self, String> {
+        let backups = path.join("backups");
         Self::new(
             path,
+            backups,
             AuthService::for_tests(),
             Some(billing_base_url),
             Some(provider_fixture_base_url),
@@ -301,12 +316,16 @@ impl ClinicState {
 
     fn new(
         dir: PathBuf,
+        backup_dir: PathBuf,
         auth: AuthService,
         billing_base_url: Option<String>,
         provider_fixture_base_url: Option<String>,
     ) -> Result<Self, String> {
         fs::create_dir_all(&dir).map_err(|error| format!("create data directory: {error}"))?;
+        fs::create_dir_all(&backup_dir)
+            .map_err(|error| format!("create backup directory: {error}"))?;
         restrict_path(&dir, 0o700)?;
+        restrict_path(&backup_dir, 0o700)?;
         let key_path = dir.join("clinic-data.key");
         let key_was_generated = !key_path.exists();
         let key = load_or_create_key(&key_path)?;
@@ -326,6 +345,8 @@ impl ClinicState {
             store: ClinicStore {
                 connection: Arc::new(Mutex::new(connection)),
                 cipher: Arc::new(Aes256Gcm::new_from_slice(&key).map_err(|_| "invalid data key")?),
+                key_path: Arc::new(key_path),
+                backup_dir: Arc::new(backup_dir),
             },
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(12))
@@ -493,13 +514,39 @@ impl ClinicStore {
         let json = serde_json::to_string(workspace).map_err(|_| internal())?;
         let encrypted = self.encrypt(&json)?;
         let connector_id = workspace.connector.as_ref().map(|item| item.id.as_str());
-        self.connection.lock().map_err(|_| internal())?.execute("INSERT INTO clinic_workspaces(oid,organization_id,connector_id,state_json,updated_at) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(oid) DO UPDATE SET connector_id=excluded.connector_id,state_json=excluded.state_json,updated_at=excluded.updated_at", params![oid, workspace.organization_id, connector_id, encrypted, now()]).map_err(|_| internal())?;
+        let connection = self.connection.lock().map_err(|_| internal())?;
+        connection.execute("INSERT INTO clinic_workspaces(oid,organization_id,connector_id,state_json,updated_at) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(oid) DO UPDATE SET connector_id=excluded.connector_id,state_json=excluded.state_json,updated_at=excluded.updated_at", params![oid, workspace.organization_id, connector_id, encrypted, now()]).map_err(|_| internal())?;
+        self.backup_locked(&connection)?;
+        Ok(())
+    }
+
+    fn backup_locked(&self, connection: &Connection) -> Result<(), ApiError> {
+        let database_tmp = self.backup_dir.join("clinic-data.latest.sqlite3.tmp");
+        let database = self.backup_dir.join("clinic-data.latest.sqlite3");
+        let key_tmp = self.backup_dir.join("clinic-data.latest.key.tmp");
+        let key = self.backup_dir.join("clinic-data.latest.key");
+        connection
+            .backup(MAIN_DB, &database_tmp, None)
+            .map_err(|_| internal())?;
+        fs::copy(self.key_path.as_ref(), &key_tmp).map_err(|_| internal())?;
+        restrict_path(&database_tmp, 0o600).map_err(|_| internal())?;
+        restrict_path(&key_tmp, 0o600).map_err(|_| internal())?;
+        fs::rename(&key_tmp, &key).map_err(|_| internal())?;
+        fs::rename(&database_tmp, &database).map_err(|_| internal())?;
         Ok(())
     }
 
     fn receipt_once(&self, event_id: &str, organization_id: &str) -> Result<bool, ApiError> {
         let changed = self.connection.lock().map_err(|_| internal())?.execute("INSERT OR IGNORE INTO provider_receipts(provider_event_id,organization_id,received_at) VALUES(?1,?2,?3)", params![event_id, organization_id, now()]).map_err(|_| internal())?;
         Ok(changed == 1)
+    }
+
+    fn delete(&self, oid: &str) -> Result<(), ApiError> {
+        let connection = self.connection.lock().map_err(|_| internal())?;
+        connection
+            .execute("DELETE FROM clinic_workspaces WHERE oid=?1", params![oid])
+            .map_err(|_| internal())?;
+        self.backup_locked(&connection)
     }
 }
 
@@ -1814,14 +1861,8 @@ pub async fn delete_workspace(
     }
     state
         .store
-        .connection
-        .lock()
-        .map_err(|_| internal().into_response())?
-        .execute(
-            "DELETE FROM clinic_workspaces WHERE oid=?1",
-            params![identity.oid],
-        )
-        .map_err(|_| internal().into_response())?;
+        .delete(&identity.oid)
+        .map_err(IntoResponse::into_response)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -2119,6 +2160,43 @@ mod tests {
     }
 
     #[test]
+    fn managed_backup_pair_restores_after_database_loss() {
+        let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
+        let first = ClinicState::for_tests(path.clone()).unwrap();
+        let workspace = ClinicWorkspace {
+            organization_id: "restore-fixture-org".to_owned(),
+            clinic_name: "Restored Clinic".to_owned(),
+            ..Default::default()
+        };
+        first.store.save("restore-owner", &workspace).unwrap();
+        drop(first);
+
+        let restore = path.join("restored");
+        fs::create_dir_all(&restore).unwrap();
+        fs::copy(
+            path.join("backups/clinic-data.latest.sqlite3"),
+            restore.join("clinic-data.sqlite3"),
+        )
+        .unwrap();
+        fs::copy(
+            path.join("backups/clinic-data.latest.key"),
+            restore.join("clinic-data.key"),
+        )
+        .unwrap();
+        let restored = ClinicState::for_tests(restore).unwrap();
+        assert_eq!(
+            restored
+                .store
+                .get("restore-owner")
+                .unwrap()
+                .unwrap()
+                .clinic_name,
+            "Restored Clinic"
+        );
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[test]
     fn managed_claim_provider_secrets_are_encrypted_at_rest() {
         let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
         let state = ClinicState::for_tests(path.clone()).unwrap();
@@ -2156,6 +2234,14 @@ mod tests {
                 & 0o777,
             0o600
         );
+        assert_eq!(
+            fs::metadata(path.join("backups"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
         let _ = fs::remove_dir_all(path);
     }
 
@@ -2186,7 +2272,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn managed_claim_provider_and_billing_fixtures_complete_observable_outcomes() {
+    async fn managed_claim_provider_fallback_and_receipt_is_observable() {
         let (fixture, fixture_task) = fixture_gateway().await;
         let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
         let state =
@@ -2275,6 +2361,26 @@ mod tests {
         assert_eq!(receipt, StatusCode::NO_CONTENT);
         let delivered = state.store.get("fixture-owner").unwrap().unwrap();
         assert_eq!(delivered.reminders[0].status, "delivered");
+
+        fixture_task.abort();
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[tokio::test]
+    async fn managed_claim_billing_checkout_and_return_activates_subscription() {
+        let (fixture, fixture_task) = fixture_gateway().await;
+        let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
+        let state =
+            ClinicState::for_tests_with_fixtures(path.clone(), fixture.clone(), fixture.clone())
+                .unwrap();
+        let workspace = ClinicWorkspace {
+            organization_id: "fixture-org".to_owned(),
+            clinic_name: "Fixture Dental".to_owned(),
+            location_name: "Main".to_owned(),
+            timezone: "UTC".to_owned(),
+            ..Default::default()
+        };
+        state.store.save("fixture-owner", &workspace).unwrap();
 
         let checkout = billing_checkout(
             State(state.clone()),

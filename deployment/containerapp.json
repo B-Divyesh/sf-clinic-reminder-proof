@@ -1,27 +1,6 @@
 {
   "properties": {
     "template": {
-      "initContainers": [
-        {
-          "name": "prepare-data-volume",
-          "image": "sociobotregistry.azurecr.io/sf-clinic-reminder-proof:current",
-          "command": [
-            "/bin/sh",
-            "-c",
-            "mkdir -p /data && chmod 0777 /data"
-          ],
-          "resources": {
-            "cpu": 0.25,
-            "memory": "0.5Gi"
-          },
-          "volumeMounts": [
-            {
-              "volumeName": "clinic-data",
-              "mountPath": "/data"
-            }
-          ]
-        }
-      ],
       "containers": [
         {
           "name": "app",
@@ -29,6 +8,10 @@
             {
               "volumeName": "clinic-data",
               "mountPath": "/data"
+            },
+            {
+              "volumeName": "clinic-backups",
+              "mountPath": "/backups"
             }
           ]
         }
@@ -38,6 +21,11 @@
           "name": "clinic-data",
           "storageType": "AzureFile",
           "storageName": "clinic-reminder-proof-data"
+        },
+        {
+          "name": "clinic-backups",
+          "storageType": "AzureFile",
+          "storageName": "clinic-reminder-proof-backups"
         }
       ],
       "scale": {
