@@ -601,7 +601,10 @@ impl ClinicStore {
             else {
                 continue;
             };
-            if day.saturating_add(30) <= today {
+            // Retain today's point plus the preceding 30 complete UTC days.
+            // A pair exactly 30 days old is still within the published
+            // retention window; only older pairs are removed.
+            if day.saturating_add(30) < today {
                 fs::remove_file(entry.path()).map_err(|_| internal())?;
             }
         }
@@ -2263,6 +2266,65 @@ mod tests {
                 .unwrap()
                 .clinic_name,
             "Restored Clinic"
+        );
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn managed_storage_recovery_claim() {
+        let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
+        let first = ClinicState::for_tests(path.clone()).unwrap();
+        let workspace = ClinicWorkspace {
+            organization_id: "storage-recovery-org".to_owned(),
+            clinic_name: "Storage Recovery Clinic".to_owned(),
+            ..Default::default()
+        };
+        first
+            .store
+            .save("storage-recovery-owner", &workspace)
+            .unwrap();
+        let today = now() / 86_400;
+        assert!(path.join("durable/clinic-data.latest.sqlite3").is_file());
+        assert!(path.join("durable/clinic-data.latest.key").is_file());
+        assert!(path
+            .join(format!("backups/clinic-data.day-{today}.sqlite3"))
+            .is_file());
+        assert!(path
+            .join(format!("backups/clinic-data.day-{today}.key"))
+            .is_file());
+
+        for suffix in ["sqlite3", "key"] {
+            fs::write(
+                path.join(format!("backups/clinic-data.day-{}.{}", today - 30, suffix)),
+                "keep",
+            )
+            .unwrap();
+            fs::write(
+                path.join(format!("backups/clinic-data.day-{}.{}", today - 31, suffix)),
+                "prune",
+            )
+            .unwrap();
+        }
+        first.store.prune_daily_backups(today).unwrap();
+        assert!(path
+            .join(format!("backups/clinic-data.day-{}.sqlite3", today - 30))
+            .exists());
+        assert!(!path
+            .join(format!("backups/clinic-data.day-{}.sqlite3", today - 31))
+            .exists());
+        drop(first);
+
+        fs::remove_file(path.join("clinic-data.sqlite3")).unwrap();
+        fs::remove_file(path.join("clinic-data.key")).unwrap();
+        let restored = ClinicState::for_tests(path.clone()).unwrap();
+        assert_eq!(
+            restored
+                .store
+                .get("storage-recovery-owner")
+                .unwrap()
+                .unwrap()
+                .clinic_name,
+            "Storage Recovery Clinic"
         );
         let _ = fs::remove_dir_all(path);
     }

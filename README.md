@@ -16,7 +16,7 @@ You can advance sample reminders, inspect provider evidence, see a consent block
 - A Rust/axum same-origin API with isolated demo cookies, Entra JWT validation, encrypted durable clinic data, rate limits, security headers, `/health`, and `/metrics`.
 - A signed calendar/EMR webhook connector with idempotent appointment upserts.
 - Twilio SMS and approved WhatsApp dispatch, Resend email fallback, and signed receipt reconciliation.
-- Shared exception assignment and resolution, clinic export/delete, and Sociobot-hosted subscription checkout at $79 per location each month, plus published messaging charges.
+- Shared exception assignment and resolution, clinic export/delete, and Sociobot-hosted subscription checkout at $79 per location each month. Delivery-provider fees are separate.
 - Original hand-authored pulse-ledger art, favicon, touch icon, social card, and self-hosted Instrument Sans / Fragment Mono assets.
 - Playwright claim tests that begin with a fresh demo browser context. See [`.factory/claims.json`](.factory/claims.json).
 

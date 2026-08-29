@@ -57,10 +57,10 @@
   },
   {
     "id": "public-price",
-    "claim": "The Clinic plan costs $79 per location each month, plus published messaging charges.",
+    "claim": "The Clinic plan costs $79 per location each month.",
     "where": "landing pricing section, terms page",
     "test": "npm run test:e2e -- --grep @claim:public-price",
-    "sandbox": "fresh public session; assert the landing and terms pages show the same exact price, billing period, per-location unit, and messaging-charge qualifier without requiring sign-in"
+    "sandbox": "fresh public session; assert the landing and terms pages show the same exact price, billing period, and per-location unit without requiring sign-in"
   },
   {
     "id": "demo-cookie-lifetime",
@@ -131,5 +131,19 @@
     "where": "Start for real, clinic workspace, README",
     "test": "npm run test:e2e -- --grep @claim:managed-billing-return",
     "sandbox": "a fixture Sociobot checkout responds with a redirect, the same-origin route returns only that URL, and its fixture verification response activates the saved subscription"
+  },
+  {
+    "id": "managed-storage-recovery",
+    "claim": "Every saved clinic change has a durable matching key and a 30-day recovery pair.",
+    "where": "README, operations guide",
+    "test": "npm run test:e2e -- --grep @claim:managed-storage-recovery",
+    "sandbox": "fresh temporary store; save a clinic workspace, assert the matching durable database/key and daily pair exist, prune an over-30-day pair, remove the local database/key, and assert startup restores the workspace"
+  },
+  {
+    "id": "single-replica-durable-topology",
+    "claim": "Production configuration uses one replica and mounts separate durable and backup shares.",
+    "where": "README, operations guide, deployment configuration",
+    "test": "npm run test:e2e -- --grep @claim:single-replica-durable-topology",
+    "sandbox": "read the checked-in deployment configuration and assert one min/max replica plus the two Azure Files volume names, storage bindings, and mount paths"
   }
 ]

@@ -205,7 +205,7 @@
     }
   }
 
-  async function updateDemo(url: string, init?: RequestInit, success?: string) {
+  async function updateDemo(url: string, init?: RequestInit, success?: string, focusAfter?: string) {
     if (offline) {
       error = 'You’re offline. Sending and resolving are unavailable.';
       return;
@@ -221,6 +221,10 @@
       error = (cause as Error).message;
     } finally {
       busy = false;
+      if (focusAfter) {
+        await tick();
+        document.querySelector<HTMLElement>(focusAfter)?.focus();
+      }
     }
   }
 
@@ -425,7 +429,7 @@
         <ul class="plain-facts" aria-label="Product facts">
           <li>Demo actions use sample data only.</li>
           <li>Reminder contents exclude clinical notes.</li>
-          <li>Clinic costs $79 per location each month, plus published messaging charges.</li>
+        <li>Clinic costs $79 per location each month.</li>
         </ul>
       </div>
       <div class="hero-preview" aria-label="Sample delivery ledger preview">
@@ -460,7 +464,7 @@
 
     <section class="pricing-section" aria-labelledby="pricing-title">
       <div><p class="eyebrow">Monthly plan</p><h2 id="pricing-title">One clear clinic price.</h2></div>
-      <div class="price-line"><strong>$79</strong><span>per location each month<br />plus published messaging charges</span></div>
+      <div class="price-line"><strong>$79</strong><span>per location each month</span></div>
       <p><a class="button secondary" href="/start" onclick={(event) => follow(event, '/start')}>Connect your clinic</a></p>
     </section>
   {:else if pagePath === '/demo'}
@@ -506,10 +510,10 @@
               <div class="exception-controls">
                 <label>Owner<select aria-label={`Owner for ${reminder.patient_alias}`} value={task.owner ?? ''} disabled={busy || loading || offline} onchange={(event) => updateDemo(`/api/v1/demo/exceptions/${task.id}/assign`, { method: 'POST', body: JSON.stringify({ owner: (event.currentTarget as HTMLSelectElement).value }) }, 'Owner saved.') }><option value="" disabled>Choose owner</option>{#each demo.staff as staff}<option value={staff.name}>{staff.name}</option>{/each}</select></label>
                 {#if task.state !== 'resolved'}
-                  <button class="button secondary" disabled={!task.owner || busy || offline} onclick={() => updateDemo(`/api/v1/demo/exceptions/${task.id}/resolve`, { method: 'POST', body: JSON.stringify({ resolution: 'Called patient' }) }, 'Exception resolved as Called patient.')}>Resolve as Called patient</button>
+                  <button class="button secondary" disabled={!task.owner || busy || offline} onclick={() => updateDemo(`/api/v1/demo/exceptions/${task.id}/resolve`, { method: 'POST', body: JSON.stringify({ resolution: 'Called patient' }) }, 'Exception resolved as Called patient.', `#undo-${task.id}`)}>Resolve as Called patient</button>
                 {:else}
                   <p class="resolution"><strong>Resolved:</strong> {task.resolution}</p>
-                  <button class="text-button" disabled={busy || offline || !task.undo_available} onclick={() => updateDemo(`/api/v1/demo/exceptions/${task.id}/undo`, { method: 'POST' }, 'Resolution undone. The exception remains assigned.')}>Undo resolution</button>
+                  <button id={`undo-${task.id}`} class="text-button" disabled={busy || offline || !task.undo_available} onclick={() => updateDemo(`/api/v1/demo/exceptions/${task.id}/undo`, { method: 'POST' }, 'Resolution undone. The exception remains assigned.')}>Undo resolution</button>
                 {/if}
               </div>
             </article>
@@ -549,7 +553,7 @@
         <button class="button primary" onclick={signIn} disabled={!authReady || busy}>{authReady ? 'Sign in with Microsoft' : 'Preparing secure sign-in…'}</button>
         <a class="button secondary" href="/demo" onclick={(event) => follow(event, '/demo')}>Try sample data first</a>
         <span>Subscription checkout opens after you sign in and create a clinic workspace.</span>
-        <span>$79 per location each month, plus published messaging charges.</span>
+        <span>$79 per location each month. Delivery-provider fees are separate.</span>
       </div>
     </section>
   {:else if pagePath === '/app' || pagePath === '/auth/callback'}
@@ -576,14 +580,14 @@
         <section class="ledger-panel" aria-labelledby="clinic-ledger-title"><div class="panel-heading"><div><p class="eyebrow">Delivery ledger</p><h2 id="clinic-ledger-title">Real reminder evidence</h2></div><span>{clinic.location_name} · {clinic.timezone}</span></div>
           {#if clinic.reminders.length === 0}<div class="state-panel"><h3>No appointments received</h3><p>Connect your source and send its first signed appointment batch.</p></div>{:else}<ul class="real-list">{#each clinic.reminders as reminder}<li><div><strong>{reminder.appointment_time} · {reminder.patient_alias}</strong><span>{reminder.source_id}</span></div><div><strong>{statusLabel(reminder.status)}</strong><span>{reminder.timeline.at(-1)?.outcome}</span></div><div>{reminder.channels.map((item) => `${item.channel}: ${item.consent}`).join(' → ')}</div><button class="button secondary" onclick={() => dispatchReminder(reminder.id)} disabled={busy || reminder.status !== 'scheduled'}>Dispatch approved reminder</button>{#if reminder.exception}<label>Exception owner<input value={reminder.exception.owner ?? ''} aria-label={`Exception owner for ${reminder.patient_alias}`} onblur={(event) => saveException(reminder.exception!.id, 'assign', event.currentTarget.value)} /></label>{#if reminder.exception.owner && reminder.exception.state !== 'resolved'}<button class="text-button" onclick={() => saveException(reminder.exception!.id, 'resolve', 'Called patient')}>Resolve as Called patient</button>{/if}{/if}</li>{/each}</ul>{/if}
         </section>
-        <section class="billing-panel" aria-labelledby="billing-title"><div><p class="eyebrow">Subscription</p><h2 id="billing-title">Clinic plan</h2><p>$79 per location each month, plus published messaging charges. Checkout and subscription status are handled by Sociobot.</p><p><strong>Status:</strong> {clinic.subscription.status === 'active' ? 'Active' : 'Required before live dispatch'}</p></div><button class="button primary" onclick={startCheckout} disabled={busy}>Subscribe through Sociobot <span class="sr-only">(opens Sociobot checkout)</span></button></section>
+        <section class="billing-panel" aria-labelledby="billing-title"><div><p class="eyebrow">Subscription</p><h2 id="billing-title">Clinic plan</h2><p>$79 per location each month. Delivery-provider fees are separate. Checkout and subscription status are handled by Sociobot.</p><p><strong>Status:</strong> {clinic.subscription.status === 'active' ? 'Active' : 'Required before live dispatch'}</p></div><button class="button primary" onclick={startCheckout} disabled={busy}>Subscribe through Sociobot <span class="sr-only">(opens Sociobot checkout)</span></button></section>
         <div class="data-actions"><button class="text-button" onclick={exportClinic}>Export clinic data</button><button class="text-button danger-action" onclick={deleteClinic}>Delete clinic workspace</button><span>Export includes minimized reminder evidence and exceptions.</span></div>
       {/if}
     </section>
   {:else if pagePath === '/privacy'}
     <section class="legal-page" aria-labelledby="page-title"><p class="eyebrow">Privacy</p><h1 id="page-title" tabindex="-1">How Reminder Proof handles data</h1><p class="lede">The public demo and signed-in clinic workspaces are separate.</p><h2>Public demo</h2><p>An HttpOnly, Secure browser cookie holds compact fictional sample state. It expires within 24 hours.</p><h2>Managed clinic data</h2><p>Clinic data is stored on the service and scoped to the stable Entra account ID. Provider credentials are encrypted and never returned to the browser.</p><h2>Minimum patient data</h2><p>Use aliases, contact destinations, consent evidence, and appointment times. Do not store clinical notes, diagnoses, or treatment details.</p><h2>Providers and billing</h2><p>Real dispatch sends the approved reminder to the configured Twilio or Resend endpoint. Subscription checkout and verification use Sociobot.</p><h2>Tracking and control</h2><p>No tracking script loads. Signed-in clinics can export or delete their workspace. Do not use Reminder Proof as a medical record.</p></section>
   {:else if pagePath === '/terms'}
-    <section class="legal-page" aria-labelledby="page-title"><p class="eyebrow">Terms</p><h1 id="page-title" tabindex="-1">Terms for Reminder Proof</h1><p class="lede">Reminder Proof is a delivery-evidence layer for clinic reminder operations. It is not a medical system and does not provide medical advice.</p><h2>Sample clinic</h2><p>The public demo uses fictional sample data and simulated provider outcomes. Do not enter real patient or clinic information into it.</p><h2>Monthly plan</h2><p>The Clinic plan is $79 per location each month, plus published messaging charges. Sociobot is the checkout and subscription service.</p><h2>Clinic responsibilities</h2><p>Clinic operators remain responsible for consent, lawful messaging, approved provider accounts, source records, and local privacy obligations.</p></section>
+    <section class="legal-page" aria-labelledby="page-title"><p class="eyebrow">Terms</p><h1 id="page-title" tabindex="-1">Terms for Reminder Proof</h1><p class="lede">Reminder Proof is a delivery-evidence layer for clinic reminder operations. It is not a medical system and does not provide medical advice.</p><h2>Sample clinic</h2><p>The public demo uses fictional sample data and simulated provider outcomes. Do not enter real patient or clinic information into it.</p><h2>Monthly plan</h2><p>The Clinic plan is $79 per location each month. Delivery-provider fees are separate. Sociobot is the checkout and subscription service.</p><h2>Clinic responsibilities</h2><p>Clinic operators remain responsible for consent, lawful messaging, approved provider accounts, source records, and local privacy obligations.</p></section>
   {:else}
     <section class="not-found" aria-labelledby="page-title"><PulseLedger label="A quiet empty proof ledger." /><div><p class="eyebrow">404</p><h1 id="page-title" tabindex="-1">This page has no ledger entry</h1><p>Return to the page that explains the sample clinic.</p><a class="button primary" href="/" onclick={(event) => follow(event, '/')}>Go to Reminder Proof</a></div></section>
   {/if}

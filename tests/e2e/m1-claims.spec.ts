@@ -111,15 +111,16 @@ test('@claim:minimal-reminder-content Sample reminder contents exclude clinical 
   expect(data).not.toMatch(/diagnos|clinical note|treatment|date of birth|insurance|address|phone|email address/i);
 });
 
-test('@claim:public-price The Clinic plan costs $79 per location each month, plus published messaging charges.', async ({ page }) => {
+test('@claim:public-price The Clinic plan costs $79 per location each month.', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('See every reminder outcome.');
   await expect(page.locator('.pricing-section')).toContainText('$79');
   await expect(page.locator('.pricing-section')).toContainText('per location each month');
-  await expect(page.locator('.pricing-section')).toContainText('published messaging charges');
+  await expect(page.locator('.pricing-section')).not.toContainText('published messaging charges');
   await page.getByRole('link', { name: 'Terms' }).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Terms for Reminder Proof');
-  await expect(page.locator('.legal-page')).toContainText('$79 per location each month, plus published messaging charges.');
+  await expect(page.locator('.legal-page')).toContainText('The Clinic plan is $79 per location each month.');
+  await expect(page.locator('.legal-page')).not.toContainText('published messaging charges');
 });
 
 test('@claim:demo-cookie-lifetime Demo state uses an isolated HttpOnly Secure cookie that expires within 24 hours.', async ({ page }) => {
@@ -295,6 +296,21 @@ test('keyboard, mobile, deep links, back navigation, and offline reads work', as
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await expect(page.getByText(/You’re offline/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Advance due reminders' })).toBeDisabled();
+});
+
+test('public routes reflow at 390px with 200% text and resolution retains keyboard focus', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const path of ['/', '/demo', '/privacy', '/terms']) {
+    await page.goto(path);
+    if (path === '/demo') await expect(page.getByRole('heading', { level: 1 })).toHaveText('Today’s sample reminders');
+    await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), path).toBe(true);
+    await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
+  }
+  await openDemo(page);
+  await page.getByLabel('Owner for Sofia R.').selectOption({ label: 'Sam Rivera' });
+  await page.getByRole('button', { name: 'Resolve as Called patient' }).click();
+  await expect(page.getByRole('button', { name: 'Undo resolution' })).toBeFocused();
 });
 
 test('managed clinic entry works at 390px, 200% text, reduced motion, and keyboard only', async ({ page }) => {

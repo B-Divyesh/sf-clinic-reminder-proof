@@ -17,6 +17,9 @@ export default defineConfig({
     command: 'npm run build:web && PORT=4173 DATA_DIR=.test-data cargo run --manifest-path services/api/Cargo.toml',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000
+    // A clean checkout has to compile the Rust API before the first browser
+    // claim can connect. Keep the claim commands independently runnable on a
+    // cold Cargo cache instead of relying on a previous test to warm it.
+    timeout: 600_000
   }
 });
