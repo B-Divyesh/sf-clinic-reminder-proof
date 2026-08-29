@@ -33,7 +33,7 @@ npm run build:web
 npm run dev:api             # Same-origin app server on http://127.0.0.1:8080
 ```
 
-The API requires no configuration and uses `PORT` (default `8080`). Clinic data and the generated AES-256 data key persist below `DATA_DIR` (the image defaults to `/data`). Each successful workspace write also creates a consistent SQLite online backup and matching key below `BACKUP_DIR` (default `/backups`). Entra tenant settings may override the documented Sociobot defaults. Provider credentials are entered by a signed-in clinic and encrypted at rest.
+The API requires no configuration and uses `PORT` (default `8080`). Clinic data and the generated AES-256 data key persist below `DATA_DIR` (the image defaults to `/data`). Each successful workspace write also creates a consistent SQLite online backup and matching key below `BACKUP_DIR` (default `/backups`), plus a daily recovery pair retained for 30 days. Entra tenant settings may override the documented Sociobot defaults. Provider credentials are entered by a signed-in clinic and encrypted at rest.
 
 The production container pins the app to one replica so SQLite and demo-creation limits have one state owner. Separate durable Azure Files shares mount directly at `/data` and `/backups`; the non-root process creates and updates files without a privileged init container. Recovery steps and the restore regression are documented in [`.factory/operations.md`](.factory/operations.md). Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Sociobot Entra SPA before sign-in is opened to clinics.
 

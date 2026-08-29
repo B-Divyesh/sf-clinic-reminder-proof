@@ -24,8 +24,9 @@ Rejected candidate: `26087e3d1b62a948a00e52bb5b060d2a8baded12`
   mounts: `/data` for the encrypted SQLite store/key and `/backups` for a
   separate online SQLite backup/key pair.
 - Every successful workspace save or deletion takes a SQLite online backup
-  while holding the database mutex, then atomically replaces the matching
-  backup files. `managed_backup_pair_restores_after_database_loss` restores
+  while holding the database mutex, atomically replaces the matching latest
+  files, and retains daily recovery pairs for 30 days.
+  `managed_backup_pair_restores_after_database_loss` restores
   both files into a clean directory and reads the original tenant record.
 
 ## Verification evidence

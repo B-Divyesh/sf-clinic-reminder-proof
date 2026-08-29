@@ -17,11 +17,14 @@ shares directly to the non-root application process:
 No init container, `chmod`, root process, or mount preparation is required.
 Startup fails before opening the listener if either location is not writable.
 Every successful workspace mutation uses SQLite's online backup API while the
-database mutex is held, then atomically replaces the latest backup pair.
+database mutex is held, then atomically replaces the latest backup pair. The
+first mutation each UTC day also creates a dated recovery pair; the service
+automatically removes daily pairs older than 30 days.
 
 ## Backup and restore
 
-The application backup has an RPO of one successful workspace mutation.
+The latest application backup has an RPO of one successful workspace mutation,
+and dated recovery points have 30-day retention.
 Enable daily Azure Files share snapshots with 30-day retention on both shares
 for a second recovery layer. The data and backup shares are separate so a bad
 database write does not overwrite the only recoverable copy.

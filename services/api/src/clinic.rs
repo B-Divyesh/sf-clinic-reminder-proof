@@ -533,6 +533,37 @@ impl ClinicStore {
         restrict_path(&key_tmp, 0o600).map_err(|_| internal())?;
         fs::rename(&key_tmp, &key).map_err(|_| internal())?;
         fs::rename(&database_tmp, &database).map_err(|_| internal())?;
+        let today = now() / 86_400;
+        let daily_database = self
+            .backup_dir
+            .join(format!("clinic-data.day-{today}.sqlite3"));
+        let daily_key = self.backup_dir.join(format!("clinic-data.day-{today}.key"));
+        if !daily_database.exists() {
+            fs::copy(&database, &daily_database).map_err(|_| internal())?;
+            fs::copy(&key, &daily_key).map_err(|_| internal())?;
+            restrict_path(&daily_database, 0o600).map_err(|_| internal())?;
+            restrict_path(&daily_key, 0o600).map_err(|_| internal())?;
+        }
+        self.prune_daily_backups(today)?;
+        Ok(())
+    }
+
+    fn prune_daily_backups(&self, today: u64) -> Result<(), ApiError> {
+        for entry in fs::read_dir(self.backup_dir.as_ref()).map_err(|_| internal())? {
+            let entry = entry.map_err(|_| internal())?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            let Some(day) = name
+                .strip_prefix("clinic-data.day-")
+                .and_then(|suffix| suffix.split('.').next())
+                .and_then(|value| value.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            if day.saturating_add(30) <= today {
+                fs::remove_file(entry.path()).map_err(|_| internal())?;
+            }
+        }
         Ok(())
     }
 
@@ -2169,6 +2200,13 @@ mod tests {
             ..Default::default()
         };
         first.store.save("restore-owner", &workspace).unwrap();
+        let day = now() / 86_400;
+        assert!(path
+            .join(format!("backups/clinic-data.day-{day}.sqlite3"))
+            .is_file());
+        assert!(path
+            .join(format!("backups/clinic-data.day-{day}.key"))
+            .is_file());
         drop(first);
 
         let restore = path.join("restored");
