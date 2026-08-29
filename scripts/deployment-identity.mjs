@@ -28,15 +28,17 @@ export function assertImageMatchesBuildSha(image, expectedBuildSha) {
   return expected;
 }
 
-export function assertPublicBuildIdentity({ healthBody, landingHtml }, expectedBuildSha) {
+export function assertPublicBuildIdentity({ healthBody, frontEndSource }, expectedBuildSha) {
   const expected = normalizeBuildSha(expectedBuildSha);
   if (healthBody?.build_sha !== expected) {
     throw new Error(`live health build identity; expected ${expected}, got ${healthBody?.build_sha ?? 'none'}`);
   }
 
-  const footerBuild = `Build ${expected.slice(0, 7)}`;
-  if (typeof landingHtml !== 'string' || !landingHtml.includes(footerBuild)) {
-    throw new Error(`live landing footer build identity; expected ${footerBuild}`);
+  // The footer is rendered by the client-side Svelte app. The static HTML
+  // shell therefore has no footer text; its module must contain both the
+  // full immutable SHA and the footer's Build rendering code.
+  if (typeof frontEndSource !== 'string' || !frontEndSource.includes(expected) || !frontEndSource.includes('Build ')) {
+    throw new Error(`live landing footer build identity; expected the public app bundle to render Build ${expected.slice(0, 7)}`);
   }
   return expected;
 }
@@ -49,6 +51,14 @@ export async function fetchPublicBuildIdentity(liveUrl, expectedBuildSha, reques
   const landing = await request(`${liveUrl}/`);
   if (!landing.ok) throw new Error(`live landing returned ${landing.status}`);
   const landingHtml = await landing.text();
+  const moduleUrls = [...landingHtml.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/gi)]
+    .map((match) => new URL(match[1], liveUrl).toString());
+  if (!moduleUrls.length) throw new Error('live landing has no public application module');
+  const modules = await Promise.all(moduleUrls.map(async (url) => {
+    const response = await request(url);
+    if (!response.ok) throw new Error(`public application module returned ${response.status}`);
+    return response.text();
+  }));
 
-  return assertPublicBuildIdentity({ healthBody, landingHtml }, expectedBuildSha);
+  return assertPublicBuildIdentity({ healthBody, frontEndSource: modules.join('\n') }, expectedBuildSha);
 }

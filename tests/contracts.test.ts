@@ -250,17 +250,17 @@ describe('planning scaffold contracts', () => {
 
     expect(() => assertPublicBuildIdentity({
       healthBody: { build_sha: prior },
-      landingHtml: '<small>Build c2b1ace</small>'
+      frontEndSource: `const buildSha = '${prior}'; render('Build ' + buildSha.slice(0, 7));`
     }, candidate)).toThrow(`live health build identity; expected ${candidate}, got ${prior}`);
 
     expect(() => assertPublicBuildIdentity({
       healthBody: { build_sha: candidate },
-      landingHtml: '<small>Build c2b1ace</small>'
-    }, candidate)).toThrow('live landing footer build identity; expected Build e16e61c');
+      frontEndSource: `const buildSha = '${candidate}'; render('Version ' + buildSha);`
+    }, candidate)).toThrow('live landing footer build identity; expected the public app bundle to render Build e16e61c');
 
     expect(assertPublicBuildIdentity({
       healthBody: { build_sha: candidate },
-      landingHtml: '<small>Build e16e61c</small>'
+      frontEndSource: `const buildSha = '${candidate}'; render('Build ' + buildSha.slice(0, 7));`
     }, candidate)).toBe(candidate);
   });
 
