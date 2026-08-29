@@ -42,6 +42,13 @@
     "sandbox": "fresh seeded demo; assign the unowned exception to Sam Rivera, resolve it as Called patient, reload, assert owner and resolution, then use the offered undo and assert the prior state returns"
   },
   {
+    "id": "sample-exception-visibility",
+    "claim": "Open sample exceptions stay visible until a staff member resolves them.",
+    "where": "landing how-it-works step, demo ledger and exception queue",
+    "test": "npm run test:e2e -- --grep @claim:sample-exception-visibility",
+    "sandbox": "fresh seeded demo; keep the consent-blocked exception open while advancing the failed fallback path; reload and assert it remains in the ledger and open queue; resolve it and assert it leaves the open queue but remains as resolved ledger evidence; undo and assert it returns"
+  },
+  {
     "id": "demo-reset",
     "claim": "Reset demo restores the original sample clinic.",
     "where": "demo banner",

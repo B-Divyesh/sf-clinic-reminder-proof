@@ -86,6 +86,8 @@
   $: dueCount = demo?.reminders.filter((reminder) => reminder.due).length ?? 0;
   $: deliveredCount = demo?.reminders.filter((reminder) => reminder.state === 'delivered').length ?? 0;
   $: exceptionCount = demo?.reminders.filter((reminder) => reminder.exception && reminder.exception.state !== 'resolved').length ?? 0;
+  $: openExceptionReminders = demo?.reminders.filter((reminder) => reminder.exception && reminder.exception.state !== 'resolved') ?? [];
+  $: resolvedExceptionReminders = demo?.reminders.filter((reminder) => reminder.exception?.state === 'resolved') ?? [];
   $: selectedReminder = pagePath.startsWith('/demo/reminders/')
     ? demo?.reminders.find((reminder) => reminder.id === pagePath.split('/').at(-1)) ?? null
     : null;
@@ -280,10 +282,20 @@
   }
 
   function marker(state: string) {
-    if (state === 'delivered') return '✓';
+    if (state === 'delivered' || state === 'resolved') return '✓';
     if (state === 'exception') return '◆';
     if (state === 'cancelled') return '■';
     return '•';
+  }
+
+  function demoDisplayState(reminder: Reminder) {
+    return reminder.exception?.state === 'resolved' ? 'resolved' : reminder.state;
+  }
+
+  function demoDisplayOutcome(reminder: Reminder) {
+    return reminder.exception?.state === 'resolved'
+      ? reminder.exception.resolution ?? 'Resolved'
+      : reminder.events.at(-1)?.outcome;
   }
 
   async function initializeAuth() {
@@ -476,10 +488,9 @@
 
     <section class="work-section" aria-labelledby="follow-title">
       <div>
-        <p class="eyebrow">A proof ledger, not another calendar</p>
-        <h2 id="follow-title">Follow one reminder from schedule to outcome.</h2>
+        <h2 id="follow-title">Reminder evidence</h2>
       </div>
-      <p class="section-lede">See the source, consent check, each attempt, provider result, and staff resolution in order.</p>
+      <div><p class="section-lede">Follow one reminder from schedule to outcome.</p><p class="section-detail">See the source, consent check, each attempt, provider result, and staff resolution in order.</p></div>
     </section>
 
     <section id="how" class="steps" aria-labelledby="how-title">
@@ -487,17 +498,17 @@
       <ol>
         <li><span>01</span><div><h3>Check consent first</h3><p>A blocked channel becomes an exception before any simulated provider attempt.</p></div></li>
         <li><span>02</span><div><h3>Use the next allowed channel</h3><p>Reminder Proof tries a fallback only when consent and the clinic policy allow it.</p></div></li>
-        <li><span>03</span><div><h3>Give every failure an owner</h3><p>Blocked and exhausted reminders stay visible until a staff member resolves them.</p></div></li>
+        <li><span>03</span><div><h3>Give every failure an owner</h3><p>Open sample exceptions stay in the queue until a staff member resolves them.</p></div></li>
       </ol>
     </section>
 
     <section class="boundary-section" aria-labelledby="boundary-title">
-      <div><p class="eyebrow">Plain boundaries</p><h2 id="boundary-title">This does not replace your calendar or EMR.</h2></div>
-      <p>Reminder Proof stores no clinical notes and sends no marketing campaigns. The public demo stays separate from managed clinic data.</p>
+      <div><h2 id="boundary-title">Limits and privacy</h2></div>
+      <p>This does not replace your calendar or EMR. Reminder Proof stores no clinical notes and sends no marketing campaigns. The public demo stays separate from managed clinic data.</p>
     </section>
 
     <section class="pricing-section" aria-labelledby="pricing-title">
-      <div><p class="eyebrow">Monthly plan</p><h2 id="pricing-title">One clear clinic price.</h2></div>
+      <div><h2 id="pricing-title">Clinic plan price</h2></div>
       <div class="price-line"><strong>$79</strong><span>per location each month</span></div>
       <p><a class="button secondary" href="/start" onclick={(event) => follow(event, '/start')}>Connect your clinic</a></p>
     </section>
@@ -526,10 +537,11 @@
           <div class="panel-heading"><div><p class="eyebrow">Delivery ledger</p><h2 id="ledger-title">Evidence for each sample appointment</h2></div><span class="simulated-label">Simulated provider events</span></div>
           <ul class="ledger-list">
             {#each demo.reminders as reminder}
-              <li class:needs-owner={reminder.state === 'exception'}>
-                <span class={`status-mark ${reminder.state}`} aria-hidden="true">{marker(reminder.state)}</span>
+              {@const displayState = demoDisplayState(reminder)}
+              <li class:needs-owner={displayState === 'exception'}>
+                <span class={`status-mark ${displayState}`} aria-hidden="true">{marker(displayState)}</span>
                 <div class="appointment"><strong>{reminder.appointment_time} · {reminder.patient_alias}</strong><span>{reminder.appointment}</span></div>
-                <div class="row-outcome"><span class={`status-word ${reminder.state}`}>{statusLabel(reminder.state)}</span><span>{reminder.events.at(-1)?.outcome}</span></div>
+                <div class="row-outcome"><span class={`status-word ${displayState}`}>{statusLabel(displayState)}</span><span>{demoDisplayOutcome(reminder)}</span></div>
                 <a href={`/demo/reminders/${reminder.id}`} onclick={(event) => follow(event, `/demo/reminders/${reminder.id}`)}>View evidence<span class="sr-only"> for {reminder.patient_alias}</span></a>
               </li>
             {/each}
@@ -537,21 +549,28 @@
         </section>
         <section class="exception-panel" aria-labelledby="exceptions-title">
           <div class="panel-heading"><div><p class="eyebrow">Exception queue</p><h2 id="exceptions-title">Reminders that need a person</h2></div><span>{exceptionCount} open</span></div>
-          {#each demo.reminders.filter((reminder) => reminder.exception) as reminder}
+          {#if openExceptionReminders.length === 0}<p class="empty-exceptions">No sample reminders need staff action.</p>{/if}
+          {#each openExceptionReminders as reminder}
             {@const task = reminder.exception!}
-            <article class="exception-row">
+            <article class="exception-row" data-state="open">
               <div><h3>{reminder.appointment_time} · {reminder.patient_alias}</h3><p>{task.reason}</p><p class="next-action">{task.next_action}</p></div>
               <div class="exception-controls">
                 <label>Owner<select aria-label={`Owner for ${reminder.patient_alias}`} value={task.owner ?? ''} disabled={busy || loading || offline} onchange={(event) => updateDemo(`/api/v1/demo/exceptions/${task.id}/assign`, { method: 'POST', body: JSON.stringify({ owner: (event.currentTarget as HTMLSelectElement).value }) }, 'Owner saved.') }><option value="" disabled>Choose owner</option>{#each demo.staff as staff}<option value={staff.name}>{staff.name}</option>{/each}</select></label>
-                {#if task.state !== 'resolved'}
-                  <button class="button secondary" disabled={!task.owner || busy || offline} onclick={() => updateDemo(`/api/v1/demo/exceptions/${task.id}/resolve`, { method: 'POST', body: JSON.stringify({ resolution: 'Called patient' }) }, 'Exception resolved as Called patient.', `#undo-${task.id}`)}>Resolve as Called patient</button>
-                {:else}
-                  <p class="resolution"><strong>Resolved:</strong> {task.resolution}</p>
-                  <button id={`undo-${task.id}`} class="text-button" disabled={busy || offline || !task.undo_available} onclick={() => updateDemo(`/api/v1/demo/exceptions/${task.id}/undo`, { method: 'POST' }, 'Resolution undone. The exception remains assigned.')}>Undo resolution</button>
-                {/if}
+                <button class="button secondary" disabled={!task.owner || busy || offline} onclick={() => updateDemo(`/api/v1/demo/exceptions/${task.id}/resolve`, { method: 'POST', body: JSON.stringify({ resolution: 'Called patient' }) }, 'Exception resolved as Called patient.', `#undo-${task.id}`)}>Resolve as Called patient</button>
               </div>
             </article>
           {/each}
+          {#if resolvedExceptionReminders.length > 0}
+            <div class="resolved-exceptions"><h3>Recently resolved sample exceptions</h3>
+              {#each resolvedExceptionReminders as reminder}
+                {@const task = reminder.exception!}
+                <article class="exception-row" data-state="resolved">
+                  <div><h3>{reminder.appointment_time} · {reminder.patient_alias}</h3><p>{task.reason}</p><p class="resolution"><strong>Resolved:</strong> {task.resolution}</p></div>
+                  <div class="exception-controls"><p><strong>Owner:</strong> {task.owner}</p><button id={`undo-${task.id}`} class="text-button" disabled={busy || offline || !task.undo_available} onclick={() => updateDemo(`/api/v1/demo/exceptions/${task.id}/undo`, { method: 'POST' }, 'Resolution undone. The exception remains assigned.')}>Undo resolution</button></div>
+                </article>
+              {/each}
+            </div>
+          {/if}
         </section>
       {/if}
     </section>

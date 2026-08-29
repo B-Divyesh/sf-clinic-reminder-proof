@@ -104,6 +104,30 @@ test('@claim:exception-ownership Staff can assign and resolve a sample exception
   await expect(page.locator('.exception-row')).toContainText('Resolve as Called patient');
 });
 
+test('@claim:sample-exception-visibility Open sample exceptions stay visible until a staff member resolves them.', async ({ page }) => {
+  await openDemo(page);
+  const sofiaLedgerRow = page.locator('.ledger-list li').filter({ hasText: 'Sofia R.' });
+  await expect(sofiaLedgerRow).toContainText('Needs owner');
+  await expect(page.locator('.exception-row[data-state="open"]')).toContainText('Sofia R.');
+
+  await page.getByRole('button', { name: 'Advance due reminders' }).click();
+  await expect(page.locator('.ledger-list li').filter({ hasText: 'Jordan L.' })).toContainText('Delivered');
+  await expect(page.locator('.exception-row[data-state="open"]')).toContainText('Sofia R.');
+  await page.reload();
+  await expect(page.locator('.exception-row[data-state="open"]')).toContainText('Sofia R.');
+
+  await page.getByLabel('Owner for Sofia R.').selectOption({ label: 'Sam Rivera' });
+  await page.getByRole('button', { name: 'Resolve as Called patient' }).click();
+  await expect(page.locator('.exception-row[data-state="open"]')).toHaveCount(0);
+  await expect(page.getByText('No sample reminders need staff action.')).toBeVisible();
+  await expect(page.locator('.exception-row[data-state="resolved"]')).toContainText('Resolved: Called patient');
+  await expect(sofiaLedgerRow).toContainText('ResolvedCalled patient');
+
+  await page.getByRole('button', { name: 'Undo resolution' }).click();
+  await expect(page.locator('.exception-row[data-state="open"]')).toContainText('Sofia R.');
+  await expect(sofiaLedgerRow).toContainText('Needs owner');
+});
+
 test('@claim:demo-reset Reset demo restores the original sample clinic.', async ({ page }) => {
   await openDemo(page);
   await page.getByLabel('Owner for Sofia R.').selectOption({ label: 'Sam Rivera' });
@@ -372,6 +396,21 @@ test('public pages have no console errors and local links resolve', async ({ pag
   }
   expect(consoleErrors).toEqual([]);
   expect(failedRequests).toEqual([]);
+});
+
+test('landing sections use descriptive headings and the first screen names the job, audience, and next step', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('See every reminder outcome.');
+  await expect(page.getByText('For independent clinics that need delivery proof and a clear next step when reminders fail.')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Try it with sample data' })).toBeVisible();
+  await expect(page.getByText('Opens a sample clinic. Nothing touches real clinic data.')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2 })).toHaveText([
+    'Reminder evidence',
+    'How the sample clinic works',
+    'Limits and privacy',
+    'Clinic plan price'
+  ]);
+  await expect(page.getByText(/A proof ledger|Plain boundaries|One clear clinic price/)).toHaveCount(0);
 });
 
 test('keyboard, mobile, deep links, back navigation, and offline reads work', async ({ page }) => {

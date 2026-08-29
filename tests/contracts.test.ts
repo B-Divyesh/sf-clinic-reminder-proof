@@ -82,6 +82,35 @@ describe('planning scaffold contracts', () => {
       expect(claim.sandbox.length).toBeGreaterThan(30);
     }
   });
+
+  test('README plain-words repairs keep each reviewed sentence short and concrete', async () => {
+    const readme = await readRepositoryFile('README.md');
+    const required = [
+      'Reminder Proof records each appointment reminder outcome for independent clinics.',
+      'It shows source details, consent, provider evidence, and the staff owner.',
+      'Advance the sample reminders and inspect their evidence.',
+      'Assign or resolve the sample exception, undo a resolution, and reset the sample clinic.',
+      'Reminder Proof checks recorded consent before sending.',
+      'It records provider receipts and opens a shared exception when delivery proof is missing.',
+      'A same-origin service protects demo sessions and clinic data.',
+      'It includes rate limits, health checks, and machine-readable metrics.',
+      'Each saved change writes a matching durable database and key under `DURABLE_DIR`.',
+      'A daily recovery copy is kept under `BACKUP_DIR` for 30 days.',
+      'The container mounts separate durable and backup shares at `/durable` and `/backups`.',
+      'The application runs without root privileges.'
+    ];
+    for (const sentence of required) {
+      expect(readme).toContain(sentence);
+      expect(sentence.replace(/[`“”]/g, '').split(/\s+/).length).toBeLessThanOrEqual(22);
+    }
+    for (const removed of [
+      'Reminder Proof gives independent clinic teams a clear proof trail',
+      'You can advance sample reminders, inspect provider evidence',
+      'A Rust/axum same-origin API with isolated demo cookies',
+      'Each acknowledged workspace mutation synchronously checkpoints',
+      'Separate durable Azure Files shares mount directly'
+    ]) expect(readme).not.toContain(removed);
+  });
 });
 
 describe('M1 reminder domain contracts', () => {

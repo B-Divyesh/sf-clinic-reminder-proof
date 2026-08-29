@@ -30,8 +30,9 @@ These labels are operational examples, not clinical records. The seed contains n
 - Inspect the delivery ledger and each reminder timeline.
 - Advance deterministic simulated attempts.
 - Observe a consent block and an ordered fallback.
+- Keep the open consent-blocked exception visible while other attempts advance and after a reload.
 - Assign the Sofia R. exception to Sam Rivera.
-- Resolve it with “Called patient” and undo while safe.
+- Resolve it with “Called patient,” see it move to recently resolved evidence, and undo while safe.
 - Reset the demo from the persistent banner.
 - Choose “Start for real” to leave the isolated sample and open Sociobot Entra sign-in. The signed-in clinic workspace never reads the demo cookie.
 

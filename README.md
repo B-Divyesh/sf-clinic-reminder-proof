@@ -1,19 +1,19 @@
 # Reminder Proof
 
-Reminder Proof gives independent clinic teams a clear proof trail for each appointment reminder: what the source said, what consent allowed, what a provider returned, and which person owns a problem. It sits beside an existing calendar or EMR; it is not a replacement scheduler or medical record.
+Reminder Proof records each appointment reminder outcome for independent clinics. It shows source details, consent, provider evidence, and the staff owner. It sits beside an existing calendar or EMR; it is not a replacement scheduler or medical record.
 
 ## Try the public sandbox
 
 Open `/?demo=1` or `/demo`. The server creates a random, 24-hour sample workspace containing five fictional appointments. Its compact state stays in an HttpOnly, Secure browser cookie, so a restart or replica change does not lose the sample. Every provider event is visibly simulated. The demo never calls a messaging provider, checkout, account service, or clinic connector.
 
-You can advance sample reminders, inspect provider evidence, see a consent block, follow a simulated WhatsApp-to-email fallback, assign and resolve the sample exception, undo the safe resolution, and reset the whole sample clinic.
+Advance the sample reminders and inspect their evidence. Assign or resolve the sample exception, undo a resolution, and reset the sample clinic.
 
-“Start for real” opens the managed clinic workflow. A clinic signs in through Sociobot Microsoft Entra, creates its workspace, connects a signed calendar feed, and configures approved delivery providers. Reminder Proof checks recorded consent in policy order, sends only an approved template, ingests signed provider receipts, and opens a shared staff exception when proof is missing.
+“Start for real” opens the managed clinic workflow. A clinic signs in through Sociobot Microsoft Entra, creates its workspace, connects a signed calendar feed, and configures approved delivery providers. Reminder Proof checks recorded consent before sending. It records provider receipts and opens a shared exception when delivery proof is missing.
 
 ## What is included
 
 - Public landing, demo ledger, reminder evidence, Privacy, Terms, and styled 404 routes.
-- A Rust/axum same-origin API with isolated demo cookies, Entra JWT validation, encrypted durable clinic data, rate limits, security headers, `/health`, and `/metrics`.
+- A same-origin service protects demo sessions and clinic data. It includes rate limits, health checks, and machine-readable metrics.
 - A signed calendar/EMR webhook connector with idempotent appointment upserts.
 - Twilio SMS and approved WhatsApp dispatch, Resend email fallback, and signed receipt reconciliation.
 - Shared exception assignment and resolution, clinic export/delete, and Sociobot-hosted subscription checkout at $79 per location each month. Delivery-provider fees are separate.
@@ -33,9 +33,9 @@ npm run build:web
 npm run dev:api             # Same-origin app server on http://127.0.0.1:8080
 ```
 
-The API requires no configuration and uses `PORT` (default `8080`). The single-replica SQLite writer runs below `DATA_DIR` (the image defaults to `/data`) instead of on an SMB mount. Each acknowledged workspace mutation synchronously checkpoints a consistent database and matching key below `DURABLE_DIR` (default `/durable`), then writes a daily recovery pair below `BACKUP_DIR` (default `/backups`) with 30-day retention. Startup restores the durable pair before serving. Entra tenant settings may override the documented Sociobot defaults.
+The API requires no configuration and uses `PORT` (default `8080`). The single-replica SQLite writer runs below `DATA_DIR` (the image defaults to `/data`) instead of on an SMB mount. Each saved change writes a matching durable database and key under `DURABLE_DIR`. A daily recovery copy is kept under `BACKUP_DIR` for 30 days. Startup restores the durable pair before serving. Entra tenant settings may override the documented Sociobot defaults.
 
-The production container pins the app to one replica so SQLite and demo-creation limits have one state owner. Separate durable Azure Files shares mount directly at `/durable` and `/backups`; the non-root process creates and updates snapshots without a privileged init container or running SQLite over SMB. Recovery steps and the restore regression are documented in [`.factory/operations.md`](.factory/operations.md). Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Sociobot Entra SPA before sign-in is opened to clinics.
+The production container pins the app to one replica so SQLite and demo-creation limits have one state owner. The container mounts separate durable and backup shares at `/durable` and `/backups`. The application runs without root privileges. Recovery steps and the restore regression are documented in [`.factory/operations.md`](.factory/operations.md). Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Sociobot Entra SPA before sign-in is opened to clinics.
 
 ## Clinic integration contract
 

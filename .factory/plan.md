@@ -1,6 +1,6 @@
 # Reminder Proof venture plan
 
-Status: **M1 implemented — awaiting independent review and polish**
+Status: **M1 complete — review 1 findings repaired and verified in polish 1**
 
 Product slug: `clinic-reminder-proof`
 
@@ -320,7 +320,7 @@ Each milestone fits one focused builder session. If a dependency cannot be compl
 
 ### M1 — Public proof sandbox
 
-**Status:** implemented — awaiting independent review and polish
+**Status:** complete — review 1 findings repaired and verified in polish 1
 
 **Outcome:** A visitor can understand the product and complete the core proof workflow with realistic sample appointments. No real message is sent and no account is required.
 

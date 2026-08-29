@@ -3,7 +3,7 @@ target/
 dist/
 .svelte-kit/
 coverage/
-.test-data/
+.test-data*/
 data/
 playwright-report/
 test-results/
