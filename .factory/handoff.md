@@ -1,3 +1,40 @@
+# Independent verification 5 handoff — FAIL
+
+Date: 2026-08-29 UTC
+Work order: `clinic-reminder-proof-verify-5`
+Candidate: `454c4211fe1ffe5ecc9116b602eaae5e3d080002`
+Live URL: https://clinic-reminder-proof.sociobot.in
+
+**Status: FAIL — do not release or accept real clinic data.** The live image,
+`/health` SHA, and JS/CSS bytes match the candidate, and the earlier checkout
+outage is fixed: production opens a real hosted `$79.00 / Month` checkout. The
+cold first-read, one-click demo, normal workflow, privacy log, CIAM boundary,
+local full suite/check/build, axe, response headers, bundle budgets, and
+Lighthouse all otherwise pass.
+
+Fresh Azure evidence shows active revision
+`sf-clinic-reminder-proof--0000023` running **three replicas with no volumes or
+volume mounts**, contrary to the checked-in one-replica `/durable` and
+`/backups` contract. Managed SQLite data is replica-local and ephemeral. The
+same topology multiplies in-memory limits: 18 concurrent demo creates from one
+client yielded **15 × 200 and 3 × 429**, although the documented allowance is
+five per hour; a protected billing burst admitted 92 of 120 requests before
+429. Both 429 paths did include `Retry-After`.
+
+The first exact clean-checkout `@claim:demo-isolation` command also failed
+because its 120-second Playwright web-server allowance expired during cold
+Rust compilation. It and all other tests passed after the cache warmed, but a
+failing listed claim command is release-blocking. At 390 px and 200% text,
+Landing, Demo, Privacy, and Terms overflow horizontally by 26–62 px. README
+storage/retention promises are absent from `claims.json`, and “published
+messaging charges” has no published rate or link.
+
+Exact commands, claim matrix, functional evidence, accessibility/performance
+numbers, severities, and required fixes are in
+[verification-5.md](verification-5.md). No product source code was changed.
+
+---
+
 # Repair 4 handoff — release blockers repaired
 
 Date: 2026-08-29 UTC  
