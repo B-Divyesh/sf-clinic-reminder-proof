@@ -1,0 +1,27 @@
+{
+  "url": "https://clinic-reminder-proof.sociobot.in/demo",
+  "rows": 5,
+  "overflow": false,
+  "appointment": {
+    "x": 101,
+    "y": 2947.765625,
+    "width": 240,
+    "height": 112
+  },
+  "outcome": {
+    "x": 101,
+    "y": 3075.765625,
+    "width": 240,
+    "height": 74
+  },
+  "link": {
+    "x": 101,
+    "y": 3165.765625,
+    "width": 202.296875,
+    "height": 33
+  },
+  "noOverlap": true,
+  "consoleErrors": [],
+  "crossOriginRequests": [],
+  "axeSeriousCritical": []
+}

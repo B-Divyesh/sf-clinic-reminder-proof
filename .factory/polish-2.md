@@ -4,6 +4,7 @@ Date: 2026-08-29 UTC
 Work order: `clinic-reminder-proof-polish-2`  
 Review commit: `9c0a87a715d90c8572aa35ef425f3fe38da71893`  
 Repair implementation: `2abe63f045b2c6fe7641822be881a977049d9bba`  
+High-zoom repair: `7055965c76d2146de574368ae2882a79624de526`
 Live URL: <https://clinic-reminder-proof.sociobot.in>
 
 ## Finding closure
@@ -29,8 +30,12 @@ Live URL: <https://clinic-reminder-proof.sociobot.in>
 - Every one of the 31 exact `.factory/claims.json` commands passed independently in clean clone `/tmp/clinic-reminder-proof-polish2-clean.qspaMX`.
 - `npm test`: 8 Vitest contracts, 33 Rust tests, and 39 Chromium tests passed.
 - `npm run check`: Svelte 0 errors/0 warnings, rustfmt clean, Clippy warnings denied.
-- `npm run build`: `dist/` and the release API binary produced. Public JS is 28.58 KB gzip; CSS is 5.52 KB gzip.
+- `npm run build`: `dist/` and the release API binary produced. Public JS is 28.58 KB gzip; CSS is 5.53 KB gzip.
 - The browser suite covers one-click `?demo=1`, isolated reset, same-origin request logging, offline reads, keyboard paths, 390 px and 200% reflow, reduced motion, route focus/history, per-route titles/metadata, legal links, axe serious/critical scans, and a styled HTTP 404.
 - Local visual evidence: `.factory/qa-artifacts/polish-2/local/landing-desktop.png` and `.factory/qa-artifacts/polish-2/local/demo-mobile.png`.
+- A cold live crawl returned 200 for `/`, `/demo`, `/demo/reminders/mina`, `/start`, `/privacy`, and `/terms`, plus a real 404 for an unknown path. Every route had its own title, description, canonical URL, one H1, one main landmark, legal/home links, no console errors, and zero serious/critical axe findings. Evidence: `.factory/qa-artifacts/polish-2/live/cold-browser.json`.
+- The first live 200% visual inspection exposed an evidence-link collision that the earlier overflow-only check missed. Commit `7055965c76d2146de574368ae2882a79624de526` stacks the reminder, outcome, and evidence link at narrow widths and adds a geometry regression assertion. The redeployed page has no overflow or overlap: `.factory/qa-artifacts/polish-2/live/high-zoom.json` and `.factory/qa-artifacts/polish-2/live/demo-mobile-200.png`.
+- The deployed build reports `7055965c76d2146de574368ae2882a79624de526` from `/health`. Lighthouse mobile scored Performance 100, Accessibility 100, Best Practices 100, and SEO 100; LCP was 1.281 seconds, CLS 0, and TBT 25.5 ms. Evidence: `.factory/qa-artifacts/polish-2/live/lighthouse.json`.
+- Live rate-limit proof sent six clinic-creation requests: five returned 200 and the sixth returned 429 with `Retry-After: 3599`. A 100-request concurrent `/health` smoke returned 100 responses with status 200.
 
 No finding from review 1 or review 2 remains open.

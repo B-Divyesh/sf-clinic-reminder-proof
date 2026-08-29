@@ -1,0 +1,14 @@
+{
+  "url": "https://clinic-reminder-proof.sociobot.in",
+  "loadMs": 666,
+  "errors": [],
+  "a11y": {
+    "title": "Reminder Proof — See every reminder outcome",
+    "lang": "en",
+    "h1": 1,
+    "main": true,
+    "imgsMissingAlt": 0,
+    "buttonsUnlabeled": 0,
+    "textLength": 1529
+  }
+}

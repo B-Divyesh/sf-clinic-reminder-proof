@@ -1,0 +1,123 @@
+{
+  "build": "7055965c76d2146de574368ae2882a79624de526",
+  "routes": [
+    {
+      "route": "/",
+      "status": 200,
+      "title": "Reminder Proof — See every reminder outcome",
+      "lang": "en",
+      "h1": 1,
+      "main": 1,
+      "description": 1,
+      "canonical": "https://clinic-reminder-proof.sociobot.in/",
+      "privacy": true,
+      "terms": true,
+      "home": true,
+      "consoleErrors": 0,
+      "axeSeriousCritical": 0
+    },
+    {
+      "route": "/demo",
+      "status": 200,
+      "title": "Demo — Reminder Proof",
+      "lang": "en",
+      "h1": 1,
+      "main": 1,
+      "description": 1,
+      "canonical": "https://clinic-reminder-proof.sociobot.in/demo",
+      "privacy": true,
+      "terms": true,
+      "home": true,
+      "consoleErrors": 0,
+      "axeSeriousCritical": 0
+    },
+    {
+      "route": "/demo/reminders/mina",
+      "status": 200,
+      "title": "Reminder evidence — Reminder Proof",
+      "lang": "en",
+      "h1": 1,
+      "main": 1,
+      "description": 1,
+      "canonical": "https://clinic-reminder-proof.sociobot.in/demo/reminders/mina",
+      "privacy": true,
+      "terms": true,
+      "home": true,
+      "consoleErrors": 0,
+      "axeSeriousCritical": 0
+    },
+    {
+      "route": "/start",
+      "status": 200,
+      "title": "Start a clinic — Reminder Proof",
+      "lang": "en",
+      "h1": 1,
+      "main": 1,
+      "description": 1,
+      "canonical": "https://clinic-reminder-proof.sociobot.in/start",
+      "privacy": true,
+      "terms": true,
+      "home": true,
+      "consoleErrors": 0,
+      "axeSeriousCritical": 0
+    },
+    {
+      "route": "/privacy",
+      "status": 200,
+      "title": "Privacy — Reminder Proof",
+      "lang": "en",
+      "h1": 1,
+      "main": 1,
+      "description": 1,
+      "canonical": "https://clinic-reminder-proof.sociobot.in/privacy",
+      "privacy": true,
+      "terms": true,
+      "home": true,
+      "consoleErrors": 0,
+      "axeSeriousCritical": 0
+    },
+    {
+      "route": "/terms",
+      "status": 200,
+      "title": "Terms — Reminder Proof",
+      "lang": "en",
+      "h1": 1,
+      "main": 1,
+      "description": 1,
+      "canonical": "https://clinic-reminder-proof.sociobot.in/terms",
+      "privacy": true,
+      "terms": true,
+      "home": true,
+      "consoleErrors": 0,
+      "axeSeriousCritical": 0
+    },
+    {
+      "route": "/cold-missing-final",
+      "status": 404,
+      "title": "Page not found — Reminder Proof",
+      "lang": "en",
+      "h1": 1,
+      "main": 1,
+      "description": 1,
+      "canonical": "https://clinic-reminder-proof.sociobot.in/cold-missing-final",
+      "privacy": true,
+      "terms": true,
+      "home": true,
+      "consoleErrors": 0,
+      "axeSeriousCritical": 0
+    }
+  ],
+  "demo": {
+    "focus": "H1",
+    "banner": "Demo — sample data, nothing is saved to your clinic.\nReset demo\nStart for real",
+    "rows": 5,
+    "resetChangedWorkspace": true,
+    "crossOrigin": [],
+    "cookie": {
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax",
+      "path": "/api/v1/demo"
+    }
+  }
+}
