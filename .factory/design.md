@@ -10,7 +10,7 @@ Last updated: 2026-08-28
 
 Reminder Proof should feel like a live evidence book on a quiet clinic desk: exact enough to trust, calm enough to scan under pressure, and luminous only where new evidence arrives.
 
-Thin translucent planes represent source, consent, attempt, provider event, response, and staff resolution. They align into one horizontal ledger so the causal chain is visible. A single cyan pulse marks the newest event, then becomes a static dot. Warm amber breaks the cool system when a person must act. This makes the visual treatment explanatory rather than decorative.
+Thin translucent planes represent source, consent, attempt, messaging-provider event, response, and staff resolution. They align into one horizontal ledger so the causal chain is visible. A single cyan pulse marks the newest event, then becomes a static dot. Warm amber breaks the cool system when a person must act. This makes the visual treatment explanatory rather than decorative.
 
 The product must not resemble a generic blue healthcare dashboard. Avoid pill-filled card grids, gradient blobs, stock clinician photography, oversized metric tiles, and glass effects without information hierarchy. Translucency is reserved for overlapping evidence and drawers. The main reading plane stays nearly opaque.
 
@@ -18,7 +18,7 @@ The product must not resemble a generic blue healthcare dashboard. Avoid pill-fi
 
 - A ledger is durable evidence, not a vague activity feed.
 - A pulse implies a delivery event without suggesting guaranteed patient attention.
-- Layering makes provenance visible: the calendar said one thing, consent allowed another, and the provider returned a third.
+- Layering makes provenance visible: the calendar said one thing, consent allowed another, and the messaging provider returned a third.
 - The cool mineral palette stays calm; amber and rose make exceptions legible without alarm fatigue.
 - The system works at front-desk density and on a 390 px phone because the identity lives in line, light, and sequence rather than large artwork.
 
@@ -57,7 +57,7 @@ Contrast must be tested from the executable token file in both themes. Body text
 - **Evidence and numbers:** Fragment Mono, self-hosted OFL, weight 400 as one WOFF2 subset.
 - **Fallback:** `Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif` for interface and `ui-monospace, "SFMono-Regular", Consolas, monospace` for evidence until M1 adds the licensed files.
 
-Instrument Sans is compact without feeling institutional. Fragment Mono separates timestamps, channel IDs, and provider codes from prose. No patient-facing text uses the mono face.
+Instrument Sans is compact without feeling institutional. Fragment Mono separates timestamps, channel IDs, and messaging-provider codes from prose. No patient-facing text uses the mono face.
 
 | Token | Size / line | Use |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ Instrument Sans is compact without feeling institutional. Fragment Mono separate
 | `--text-xl` | 32 / 38 px | Page heading |
 | `--text-display` | 48 / 52 px, 40 / 44 px below 768 px | Landing headline only |
 
-Body copy is 16 px minimum, with a 60–70 character measure. Use sentence case. Button labels start with verbs. “Proof” means evidence, “attempt” means one provider request, and “exception” means a staff-owned task; do not substitute synonyms.
+Body copy is 16 px minimum, with a 60–70 character measure. Use sentence case. Button labels start with verbs. “Proof” means evidence, “attempt” means one messaging-provider request, and “exception” means a staff-owned task; do not substitute synonyms.
 
 ## Spacing, shape, depth
 
@@ -112,7 +112,7 @@ Maximum shell width is 1440 px. Long-form legal and help content is 720 px. Page
 - **Filter:** update results immediately, announce the count after a short debounce, preserve filters in the URL, and keep the heading stable.
 - **Navigate:** real links update history and titles. Route changes focus the new `<h1>`; back/forward restores route, scroll, and useful focus.
 
-Every action has pressed, busy, success, and error feedback. Provider calls and server writes are never optimistically called complete. Links remain visibly links; buttons perform actions.
+Every action has pressed, busy, success, and error feedback. Messaging-provider calls and server writes are never optimistically called complete. Links remain visibly links; buttons perform actions.
 
 ## Motion policy
 
@@ -142,14 +142,14 @@ The machine-readable inventory is `packages/design-system/component-inventory.js
 10. **Consent badge** — channel, allowed/blocked/unknown, source, captured time. Unknown is never treated as allowed.
 11. **Filter bar** — date, location, channel, status, owner, search, clear. Collapses to a labeled sheet on mobile.
 12. **Ledger timeline** — ordered evidence chain with text alternative. States: compact, expanded, pending, complete, exception.
-13. **Attempt row** — time, channel, exact state, provider code summary. States: selected, new, stale, loading detail.
+13. **Attempt row** — time, channel, exact state, messaging-provider code summary. States: selected, new, stale, loading detail.
 14. **Pulse marker** — shape and label at a timeline point. Motion occurs once; reduced mode is static.
 15. **Exception card** — reason, appointment time, safe next action, age, owner. States: unassigned, assigned to me, assigned elsewhere, overdue, resolved.
 16. **Assignment control** — native select/combobox depending list size. States: idle, saving, conflict, saved, error.
 17. **Confirmation dialog** — destructive or dispatch-affecting actions only. Traps and restores focus, names the affected record.
 18. **Inline notice / toast** — notices stay near the action; toast supplements but never replaces persisted status. States: info, success, warning, danger.
 19. **State panel** — shared geometry for empty, loading, error, expired demo, and offline. Each has one useful next step.
-20. **Evidence drawer** — source, consent, policy, attempts, responses, exception, audit link. States: loading, ready, partial provider data, error; full-screen dialog on mobile.
+20. **Evidence drawer** — source, consent, policy, attempts, responses, exception, audit link. States: loading, ready, partial messaging-provider data, error; full-screen dialog on mobile.
 
 ## Key screens
 
@@ -163,15 +163,15 @@ The `<h1>` states the date in words. A compact summary gives due, delivered, pen
 
 ### 3. Reminder evidence
 
-The evidence drawer reads as a causal chain: source appointment → consent snapshot → policy version → attempt → provider event → response → staff resolution. Unknown and missing events occupy explicit gaps. Raw provider codes live behind “Show technical detail.” The public demo uses fictional aliases and labels each event simulated.
+The evidence drawer reads as a causal chain: source appointment → consent snapshot → policy version → attempt → messaging-provider event → response → staff resolution. Unknown and missing events occupy explicit gaps. Raw messaging-provider codes live behind “Show technical detail.” The public demo uses fictional aliases and labels each event simulated.
 
 ### 4. Exception queue
 
-Rows sort by appointment risk, not by technical error. The reason is plain: “SMS provider rejected this number. Email is not allowed.” Assignment is inline. Resolution offers exact choices such as “Called patient,” “Corrected contact,” “Appointment cancelled,” or “No safe channel.” Free notes are optional, short, and explicitly non-clinical.
+Rows sort by appointment risk, not by technical error. The reason is plain: “The SMS messaging provider rejected this number. Email is not allowed.” Assignment is inline. Resolution offers exact choices such as “Called patient,” “Corrected contact,” “Appointment cancelled,” or “No safe channel.” Free notes are optional, short, and explicitly non-clinical.
 
 ### 5. Setup and dry run
 
-A left step list shows Source, Consent, Channels, Policy, and Dry run. Each completed step displays its evidence, not a decorative check alone. The dry run uses upcoming appointments and shows send/block/exception counts without contacting a provider. Activation repeats the consequences and requires an owner to confirm.
+A left step list shows Source, Consent, Channels, Policy, and Dry run. Each completed step displays its evidence, not a decorative check alone. The dry run uses upcoming appointments and shows send/block/exception counts without contacting a messaging provider. Activation repeats the consequences and requires an owner to confirm.
 
 ## Responsive behavior
 
@@ -186,11 +186,11 @@ A left step list shows Source, Consent, Channels, Policy, and Dry run. Each comp
 
 - Empty ledger: “No reminders are due in this range.” Action: “Choose another date.”
 - Unsynced source: “This source has not synced yet. Check the connection before reminders can run.” Action: “Check source.”
-- Provider pending: “The provider accepted this attempt. Delivery is not confirmed yet.”
+- Messaging-provider pending: “The messaging provider accepted this attempt. Delivery is not confirmed yet.”
 - Exhausted: “No allowed channel delivered this reminder. Assign someone to follow up.”
 - Offline: “You’re offline. This ledger was last updated at {time}. Sending and resolving are unavailable.”
 - Error: name the failed step, say whether scheduled reminders are affected, and give one recovery action plus a request ID.
-- Never use “success” for accepted/queued, “failed” for unknown, or “patient read” unless the provider supplies a documented read event.
+- Never use “success” for accepted/queued, “failed” for unknown, or “patient read” unless the messaging provider supplies a documented read event.
 
 ## Accessibility contract
 
@@ -202,7 +202,7 @@ A left step list shows Source, Consent, Channels, Policy, and Dry run. Each comp
 - Text contrast is at least 4.5:1; UI and status shapes at least 3:1 in both themes.
 - Status always combines word, icon/shape, and position; timelines include a linear text alternative.
 - Dialogs name themselves, trap focus, close with Escape when safe, and return focus to their trigger.
-- Async changes announce concise results; repeated provider updates are batched to avoid screen-reader noise.
+- Async changes announce concise results; repeated messaging-provider updates are batched to avoid screen-reader noise.
 - Reduced-motion, forced-colors, 200% text zoom, keyboard-only, and screen-reader smoke checks are release gates.
 
 ## Route titles and metadata
@@ -214,7 +214,7 @@ A left step list shows Source, Consent, Channels, Policy, and Dry run. Each comp
 | `/demo/reminders/:id` | `Reminder evidence — Reminder Proof` | Evidence for {time} appointment |
 | `/privacy` | `Privacy — Reminder Proof` | How Reminder Proof handles data |
 | `/terms` | `Terms — Reminder Proof` | Terms for Reminder Proof |
-| `/404` | `Page not found — Reminder Proof` | This page has no ledger entry |
+| `/404` | `Page not found — Reminder Proof` | Page not found |
 | `/app/ledger` | `Delivery ledger — Reminder Proof` | Delivery ledger for {date} |
 | `/app/exceptions` | `Exceptions — Reminder Proof` | Reminders that need a person |
 | `/app/setup/*` | `{Step} setup — Reminder Proof` | Set up {step} |
@@ -250,9 +250,9 @@ If image generation is introduced later, record the exact prompt, model/deployme
 | Concept | Always say | Do not alternate with |
 | --- | --- | --- |
 | Scheduled communication | reminder | notification, campaign, outreach |
-| One provider request | attempt | send, ping |
+| One messaging-provider request | attempt | send, ping |
 | Evidence chain | timeline | activity feed, history log |
-| Provider-confirmed result | delivered | successful, complete |
+| Messaging-provider-confirmed result | delivered | successful, complete |
 | Human task | exception | issue, incident, ticket |
 | Responsible staff member | owner | assignee, handler |
 | Source calendar/EMR import | source | integration feed, upstream |

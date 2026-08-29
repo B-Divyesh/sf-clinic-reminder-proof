@@ -1,4 +1,6 @@
 FROM node:22.23.2-bookworm-slim AS web-build
+ARG BUILD_SHA=dev
+ENV BUILD_SHA=${BUILD_SHA}
 WORKDIR /source
 COPY package.json package-lock.json ./
 RUN npm ci

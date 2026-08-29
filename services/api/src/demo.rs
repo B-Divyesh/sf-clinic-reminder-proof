@@ -434,7 +434,7 @@ pub async fn advance(
                     reminder.events.push(event(
                         "08:01",
                         "attempt",
-                        "SMS attempt accepted by the simulated provider.",
+                        "SMS attempt accepted by the simulated messaging provider.",
                         Some("SMS"),
                         Some("DELIVERED-200"),
                         "Delivered",
@@ -445,7 +445,7 @@ pub async fn advance(
                     reminder.events.push(event(
                         "09:31",
                         "attempt",
-                        "Approved WhatsApp template rejected by the simulated provider.",
+                        "Approved WhatsApp template rejected by the simulated messaging provider.",
                         Some("WhatsApp"),
                         Some("TEMPLATE_REJECTED"),
                         "Failed",
@@ -453,7 +453,7 @@ pub async fn advance(
                     reminder.events.push(event(
                         "09:32",
                         "attempt",
-                        "Email fallback accepted by the simulated provider.",
+                        "Email fallback accepted by the simulated messaging provider.",
                         Some("Email"),
                         Some("DELIVERED-200"),
                         "Delivered",
@@ -479,7 +479,7 @@ pub async fn advance_due(
                     reminder.events.push(event(
                         "08:01",
                         "attempt",
-                        "SMS attempt accepted by the simulated provider.",
+                        "SMS attempt accepted by the simulated messaging provider.",
                         Some("SMS"),
                         Some("DELIVERED-200"),
                         "Delivered",
@@ -490,7 +490,7 @@ pub async fn advance_due(
                     reminder.events.push(event(
                         "09:31",
                         "attempt",
-                        "Approved WhatsApp template rejected by the simulated provider.",
+                        "Approved WhatsApp template rejected by the simulated messaging provider.",
                         Some("WhatsApp"),
                         Some("TEMPLATE_REJECTED"),
                         "Failed",
@@ -498,7 +498,7 @@ pub async fn advance_due(
                     reminder.events.push(event(
                         "09:32",
                         "attempt",
-                        "Email fallback accepted by the simulated provider.",
+                        "Email fallback accepted by the simulated messaging provider.",
                         Some("Email"),
                         Some("DELIVERED-200"),
                         "Delivered",
@@ -668,7 +668,7 @@ fn advance_mina(data: &mut DemoData) {
         reminder.events.push(event(
             "08:01",
             "attempt",
-            "SMS attempt accepted by the simulated provider.",
+            "SMS attempt accepted by the simulated messaging provider.",
             Some("SMS"),
             Some("DELIVERED-200"),
             "Delivered",
@@ -686,7 +686,7 @@ fn advance_jordan(data: &mut DemoData) {
         reminder.events.push(event(
             "09:31",
             "attempt",
-            "Approved WhatsApp template rejected by the simulated provider.",
+            "Approved WhatsApp template rejected by the simulated messaging provider.",
             Some("WhatsApp"),
             Some("TEMPLATE_REJECTED"),
             "Failed",
@@ -694,7 +694,7 @@ fn advance_jordan(data: &mut DemoData) {
         reminder.events.push(event(
             "09:32",
             "attempt",
-            "Email fallback accepted by the simulated provider.",
+            "Email fallback accepted by the simulated messaging provider.",
             Some("Email"),
             Some("DELIVERED-200"),
             "Delivered",
@@ -794,7 +794,7 @@ fn seed(workspace_id: &str) -> DemoData {
                     event(
                         "13:21",
                         "consent",
-                        "SMS is blocked by an opt-out. No provider attempt was made.",
+                        "SMS is blocked by an opt-out. No messaging-provider attempt was made.",
                         Some("SMS"),
                         None,
                         "Blocked",
@@ -837,7 +837,7 @@ fn seed(workspace_id: &str) -> DemoData {
                     event(
                         "14:52",
                         "attempt",
-                        "Email accepted by the simulated provider.",
+                        "Email accepted by the simulated messaging provider.",
                         Some("Email"),
                         Some("DELIVERED-200"),
                         "Delivered",

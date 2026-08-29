@@ -1,1 +1,1 @@
-Track reminder outcomes, fallbacks, and staff-owned exceptions beside your clinic calendar.
+Track every reminder outcome and give failed deliveries a clear staff owner.

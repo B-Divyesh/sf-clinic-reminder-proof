@@ -6,10 +6,10 @@ Status: implemented in M1.
 
 - Public entry: `https://clinic-reminder-proof.sociobot.in/?demo=1`
 - Stable route: `https://clinic-reminder-proof.sociobot.in/demo`
-- No account, card, connector, or provider credential is required.
+- No account, card, connector, or messaging-provider credential is required.
 - `POST /api/v1/demo/workspaces` creates a random workspace with a 24-hour TTL in an HttpOnly, Secure, SameSite=Lax cookie scoped to the demo API.
 - The compact cookie carries only a random ID and sample-state codes. It contains no clinic or patient data. Replica changes and process restarts cannot lose it.
-- No demo operation can dispatch a message, call a provider, begin checkout, or read authenticated tenant state.
+- No demo operation can dispatch a message, call a messaging provider, begin checkout, or read authenticated tenant state.
 
 ## Seed data
 
@@ -17,7 +17,7 @@ M1 must use fictional people and clearly label all delivery events “Simulated.
 
 | Patient alias | Appointment | Scenario | Expected outcome |
 | --- | --- | --- | --- |
-| Mina P. | Hygiene visit, 09:00 | SMS provider reports delivered | Delivery evidence |
+| Mina P. | Hygiene visit, 09:00 | SMS messaging provider reports delivered | Delivery evidence |
 | Jordan L. | Follow-up visit, 10:30 | Approved WhatsApp template is rejected; consented email succeeds | Ordered fallback evidence |
 | Sofia R. | New patient visit, 14:00 | SMS opted out; no other channel allowed | Unassigned exception |
 | Eli K. | Review visit, 15:30 | Email delivered; patient replies “YES” | Delivery and response evidence |
@@ -48,6 +48,6 @@ These labels are operational examples, not clinical records. The seed contains n
 
 ## Verification
 
-Every M1 claim begins in a fresh browser context at `/?demo=1`. Tests record browser requests for the full flow and allow only the product origin. Provider and billing adapters are replaced by compile-time-disabled demo implementations, not network mocks in the browser. The seed and clock are deterministic in test mode. Test traces and screenshots go under `test-results/` and are never committed.
+Every M1 claim begins in a fresh browser context at `/?demo=1`. Tests record browser requests for the full flow and allow only the product origin. Messaging-provider and billing adapters are replaced by compile-time-disabled demo implementations, not network mocks in the browser. The seed and clock are deterministic in test mode. Test traces and screenshots go under `test-results/` and are never committed.
 
 The reference command is `npm run test:e2e`; each claim tag can be selected with `npm run test:e2e -- --grep @claim:<id>`.

@@ -70,6 +70,8 @@
   const description =
     'Track appointment reminder attempts, delivery evidence, safe fallbacks, and staff-owned exceptions without replacing your clinic calendar.';
   const origin = 'https://clinic-reminder-proof.sociobot.in';
+  const buildSha = __BUILD_SHA__;
+  const shortBuildSha = buildSha.slice(0, 7);
 
   function pageMeta(path: string) {
     if (path === '/') return { title: 'Reminder Proof — See every reminder outcome', heading: 'See every reminder outcome' };
@@ -79,7 +81,7 @@
     if (path === '/terms') return { title: 'Terms — Reminder Proof', heading: 'Terms for Reminder Proof' };
     if (path === '/start') return { title: 'Start a clinic — Reminder Proof', heading: 'Connect your clinic reminders' };
     if (path === '/app' || path === '/auth/callback') return { title: 'Clinic ledger — Reminder Proof', heading: 'Clinic reminder ledger' };
-    return { title: 'Page not found — Reminder Proof', heading: 'This page has no ledger entry' };
+    return { title: 'Page not found — Reminder Proof', heading: 'Page not found' };
   }
 
   $: meta = pageMeta(pagePath);
@@ -375,13 +377,13 @@
     event.preventDefault(); busy = true; error = '';
     const fields = new FormData(event.currentTarget as HTMLFormElement);
     const channel = String(fields.get('channel'));
-    try { clinic = await clinicRequest<ClinicWorkspace>('/api/v1/clinic/providers', { method: 'POST', body: JSON.stringify({ channel, kind: channel === 'email' ? 'resend' : 'twilio', account_id: fields.get('account_id'), secret: fields.get('secret'), from: fields.get('from'), approved_template_id: fields.get('approved_template_id'), webhook_secret: fields.get('webhook_secret') }) }); notice = `${channel} provider saved. Credentials are encrypted.`; (event.currentTarget as HTMLFormElement).reset(); }
+    try { clinic = await clinicRequest<ClinicWorkspace>('/api/v1/clinic/providers', { method: 'POST', body: JSON.stringify({ channel, kind: channel === 'email' ? 'resend' : 'twilio', account_id: fields.get('account_id'), secret: fields.get('secret'), from: fields.get('from'), approved_template_id: fields.get('approved_template_id'), webhook_secret: fields.get('webhook_secret') }) }); notice = `${channel} messaging provider saved. Credentials are encrypted.`; (event.currentTarget as HTMLFormElement).reset(); }
     catch (cause) { error = (cause as Error).message; } finally { busy = false; }
   }
 
   async function dispatchReminder(id: string) {
     busy = true; error = '';
-    try { clinic = await clinicRequest<ClinicWorkspace>('/api/v1/clinic/reminders/dispatch', { method: 'POST', headers: { 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify({ reminder_id: id }) }); notice = 'Dispatch evaluated consent and recorded the provider result.'; }
+    try { clinic = await clinicRequest<ClinicWorkspace>('/api/v1/clinic/reminders/dispatch', { method: 'POST', headers: { 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify({ reminder_id: id }) }); notice = 'Dispatch evaluated consent and recorded the messaging-provider result.'; }
     catch (cause) { error = (cause as Error).message; } finally { busy = false; }
   }
 
@@ -490,13 +492,13 @@
       <div>
         <h2 id="follow-title">Reminder evidence</h2>
       </div>
-      <div><p class="section-lede">Follow one reminder from schedule to outcome.</p><p class="section-detail">See the source, consent check, each attempt, provider result, and staff resolution in order.</p></div>
+      <div><p class="section-lede">Follow one reminder from schedule to outcome.</p><p class="section-detail">See the source, consent check, each attempt, messaging-provider result, and staff resolution in order.</p></div>
     </section>
 
     <section id="how" class="steps" aria-labelledby="how-title">
       <h2 id="how-title">How the sample clinic works</h2>
       <ol>
-        <li><span>01</span><div><h3>Check consent first</h3><p>A blocked channel becomes an exception before any simulated provider attempt.</p></div></li>
+        <li><span>01</span><div><h3>Check consent first</h3><p>A blocked channel becomes an exception before any simulated messaging-provider attempt.</p></div></li>
         <li><span>02</span><div><h3>Use the next allowed channel</h3><p>Reminder Proof tries a fallback only when consent and the clinic policy allow it.</p></div></li>
         <li><span>03</span><div><h3>Give every failure an owner</h3><p>Open sample exceptions stay in the queue until a staff member resolves them.</p></div></li>
       </ol>
@@ -519,7 +521,7 @@
         <div><button class="text-button" onclick={resetDemo} disabled={busy || loading}>Reset demo</button><button class="text-button" onclick={startForReal}>Start for real</button></div>
       </div>
       <div class="page-heading">
-        <div><p class="eyebrow">{demo?.clinic.name ?? 'Loading sample clinic'}</p><h1 id="page-title" tabindex="-1">Today’s sample reminders</h1><p>Every provider result is simulated. No real reminder is sent.</p></div>
+        <div><p class="eyebrow">{demo?.clinic.name ?? 'Loading sample clinic'}</p><h1 id="page-title" tabindex="-1">Today’s sample reminders</h1><p>Every messaging-provider result is simulated. No real reminder is sent.</p></div>
         <button class="button primary" onclick={() => updateDemo('/api/v1/demo/reminders/advance-due', { method: 'POST' }, 'Due sample reminders advanced.') } disabled={busy || loading || offline}>Advance due reminders</button>
       </div>
       {#if offline}<div class="state-notice warning" role="status">You’re offline. This ledger was last updated in this browser. Sending and resolving are unavailable.</div>{/if}
@@ -530,11 +532,11 @@
       {:else if demo}
         <div class="summary-grid" aria-label="Sample reminder summary">
           <div><span>Due</span><strong>{dueCount}</strong><small>sample reminders</small></div>
-          <div><span>Delivered</span><strong>{deliveredCount}</strong><small>with provider evidence</small></div>
+          <div><span>Delivered</span><strong>{deliveredCount}</strong><small>with messaging-provider evidence</small></div>
           <div><span>Exceptions</span><strong>{exceptionCount}</strong><small>need a person</small></div>
         </div>
         <section class="ledger-panel" aria-labelledby="ledger-title">
-          <div class="panel-heading"><div><p class="eyebrow">Delivery ledger</p><h2 id="ledger-title">Evidence for each sample appointment</h2></div><span class="simulated-label">Simulated provider events</span></div>
+          <div class="panel-heading"><div><p class="eyebrow">Delivery ledger</p><h2 id="ledger-title">Evidence for each sample appointment</h2></div><span class="simulated-label">Simulated messaging-provider events</span></div>
           <ul class="ledger-list">
             {#each demo.reminders as reminder}
               {@const displayState = demoDisplayState(reminder)}
@@ -578,14 +580,14 @@
     <section class="app-page" aria-labelledby="page-title">
       <div class="demo-banner" role="status"><span><strong>Demo</strong> — sample data, nothing is saved to your clinic.</span><div><button class="text-button" onclick={resetDemo} disabled={busy || loading}>Reset demo</button><button class="text-button" onclick={startForReal}>Start for real</button></div></div>
       {#if loading && !demo}<div class="state-panel" role="status">Loading sample evidence…</div>
-      {:else if !selectedReminder}<div class="state-panel"><h1 id="page-title" tabindex="-1">This sample reminder has no ledger entry</h1><p>Choose a reminder from the sample ledger.</p><a class="button primary" href="/demo" onclick={(event) => follow(event, '/demo')}>Return to sample ledger</a></div>
+      {:else if !selectedReminder}<div class="state-panel"><h1 id="page-title" tabindex="-1">Sample reminder not found</h1><p>Choose a reminder from the sample ledger.</p><a class="button primary" href="/demo" onclick={(event) => follow(event, '/demo')}>Return to sample ledger</a></div>
       {:else}
         <a class="back-link" href="/demo" onclick={(event) => follow(event, '/demo')}>← Back to sample ledger</a>
         <div class="detail-heading"><div><p class="eyebrow">Simulated evidence</p><h1 id="page-title" tabindex="-1">Evidence for {selectedReminder.appointment_time} appointment</h1><p>{selectedReminder.patient_alias} · {selectedReminder.appointment}</p></div><span class={`status-word ${selectedReminder.state}`}>{statusLabel(selectedReminder.state)}</span></div>
         {#if error}<div class="state-notice danger" role="alert">{error}</div>{/if}
         <section class="timeline-panel" aria-labelledby="timeline-title"><h2 id="timeline-title">Timeline</h2><ol class="timeline">
           {#each selectedReminder.events as event}
-            <li><span class={`timeline-marker ${event.kind}`} aria-hidden="true">{event.kind === 'attempt' ? '→' : event.kind === 'consent' ? '□' : event.kind === 'response' ? '↳' : '•'}</span><div><p><time>{event.at}</time> · {event.label}</p><dl><div><dt>Outcome</dt><dd>{event.outcome}</dd></div>{#if event.channel}<div><dt>Channel</dt><dd>{event.channel}</dd></div>{/if}{#if event.provider_result}<div><dt>Provider result</dt><dd>{event.provider_result}</dd></div>{/if}<div><dt>Provider mode</dt><dd>Simulated</dd></div></dl></div></li>
+            <li><span class={`timeline-marker ${event.kind}`} aria-hidden="true">{event.kind === 'attempt' ? '→' : event.kind === 'consent' ? '□' : event.kind === 'response' ? '↳' : '•'}</span><div><p><time>{event.at}</time> · {event.label}</p><dl><div><dt>Outcome</dt><dd>{event.outcome}</dd></div>{#if event.channel}<div><dt>Channel</dt><dd>{event.channel}</dd></div>{/if}{#if event.provider_result}<div><dt>Messaging-provider result</dt><dd>{event.provider_result}</dd></div>{/if}<div><dt>Messaging-provider mode</dt><dd>Simulated</dd></div></dl></div></li>
           {/each}
         </ol></section>
         {#if selectedReminder.state === 'scheduled'}<button class="button primary" disabled={busy || offline} onclick={() => updateDemo(`/api/v1/demo/reminders/${selectedReminder?.id}/advance`, { method: 'POST' }, 'Sample reminder advanced.')}>Advance this sample reminder</button>{/if}
@@ -597,7 +599,7 @@
       <div class="page-heading"><div><p class="eyebrow">Managed clinic workflow</p><h1 id="page-title" tabindex="-1">Connect your clinic reminders</h1><p>Sign in, connect your calendar, and send approved reminders with delivery proof and staff-owned exceptions.</p></div></div>
       <div class="workflow-grid" aria-label="Clinic workflow">
         <div><span>01</span><h2>Sign in safely</h2><p>Sociobot Microsoft Entra protects each clinic workspace.</p></div>
-        <div><span>02</span><h2>Connect approved services</h2><p>A signed calendar feed and encrypted provider credentials keep systems separate.</p></div>
+        <div><span>02</span><h2>Connect approved services</h2><p>A signed calendar feed and encrypted messaging-provider credentials keep systems separate.</p></div>
         <div><span>03</span><h2>Follow every outcome</h2><p>Consent, fallback attempts, signed receipts, and staff action stay in one timeline.</p></div>
       </div>
       <div class="state-notice warning"><strong>Use minimum data:</strong> send patient aliases, contact destinations, consent evidence, and appointment times. Do not send clinical notes.</div>
@@ -606,7 +608,7 @@
         <button class="button primary" onclick={signIn} disabled={!authReady || busy}>{authReady ? 'Sign in with Microsoft' : 'Preparing secure sign-in…'}</button>
         <a class="button secondary" href="/demo" onclick={(event) => follow(event, '/demo')}>Try sample data first</a>
         <span>Subscription checkout opens after you sign in and create a clinic workspace.</span>
-        <span>$79 per location each month. Delivery-provider fees are separate.</span>
+        <span>$79 per location each month. Messaging-provider fees are separate.</span>
       </div>
     </section>
   {:else if pagePath === '/app' || pagePath === '/auth/callback'}
@@ -625,25 +627,25 @@
           <button class="button primary" disabled={busy}>Create clinic workspace</button>
         </form>
       {:else}
-        <div class="summary-grid" aria-label="Clinic reminder summary"><div><span>Reminders</span><strong>{clinic.reminders.length}</strong><small>from the connector</small></div><div><span>Provider proof</span><strong>{clinic.reminders.filter((item) => ['delivered', 'read'].includes(item.status)).length}</strong><small>terminal receipts</small></div><div><span>Exceptions</span><strong>{clinic.reminders.filter((item) => item.exception && item.exception.state !== 'resolved').length}</strong><small>need a person</small></div></div>
+        <div class="summary-grid" aria-label="Clinic reminder summary"><div><span>Reminders</span><strong>{clinic.reminders.length}</strong><small>from the connector</small></div><div><span>Messaging proof</span><strong>{clinic.reminders.filter((item) => ['delivered', 'read'].includes(item.status)).length}</strong><small>terminal receipts</small></div><div><span>Exceptions</span><strong>{clinic.reminders.filter((item) => item.exception && item.exception.state !== 'resolved').length}</strong><small>need a person</small></div></div>
         <section class="setup-columns" aria-label="Clinic connection setup">
           <form class="setup-form" onsubmit={saveConnector}><div><p class="eyebrow">Source</p><h2>Signed calendar connector</h2><p>Your EMR or calendar posts appointments through a signed HTTPS request.</p></div><label>Signing secret<input name="webhook_secret" type="password" minlength="16" maxlength="200" required autocomplete="new-password" /></label><button class="button secondary" disabled={busy}>Create connector</button>{#if clinic.connector}<p class="config-proof"><strong>Connected:</strong> {clinic.connector.id}</p>{/if}{#if connectorSecret}<p class="state-notice warning"><strong>Copy now:</strong> {connectorSecret}</p>{/if}</form>
-          <form class="setup-form" onsubmit={saveProvider}><div><p class="eyebrow">Delivery</p><h2>Approved provider</h2><p>Twilio sends SMS or approved WhatsApp. Resend sends email.</p></div><label>Channel<select name="channel" required><option value="sms">SMS</option><option value="email">Email</option><option value="whatsapp">WhatsApp</option></select></label><label>Account ID<input name="account_id" maxlength="200" /></label><label>Provider credential<input name="secret" type="password" required maxlength="300" autocomplete="new-password" /></label><label>Approved sender<input name="from" required maxlength="300" /></label><label>Approved template ID<input name="approved_template_id" required maxlength="300" /></label><label>Receipt signing secret<input name="webhook_secret" type="password" required minlength="16" maxlength="300" autocomplete="new-password" /><small>For Resend, enter its webhook secret (starts with <code>whsec_</code>). Twilio verifies callbacks with the provider credential.</small></label><button class="button secondary" disabled={busy}>Save provider</button>{#if clinic.providers.length > 0}<ul class="config-list">{#each clinic.providers as provider}<li><strong>{provider.channel} · {provider.kind}</strong><span>Receipt URL: {origin}/api/v1/providers/{provider.kind === 'twilio' ? 'twilio/' : 'resend/'}{provider.id}/receipts</span></li>{/each}</ul>{/if}</form>
+          <form class="setup-form" onsubmit={saveProvider}><div><p class="eyebrow">Delivery</p><h2>Approved messaging provider</h2><p>Twilio sends SMS or approved WhatsApp. Resend sends email.</p></div><label>Channel<select name="channel" required><option value="sms">SMS</option><option value="email">Email</option><option value="whatsapp">WhatsApp</option></select></label><label>Account ID<input name="account_id" maxlength="200" /></label><label>Messaging-provider credential<input name="secret" type="password" required maxlength="300" autocomplete="new-password" /></label><label>Approved sender<input name="from" required maxlength="300" /></label><label>Approved template ID<input name="approved_template_id" required maxlength="300" /></label><label>Receipt signing secret<input name="webhook_secret" type="password" required minlength="16" maxlength="300" autocomplete="new-password" /><small>For Resend, enter its webhook secret (starts with <code>whsec_</code>). Twilio verifies callbacks with the messaging-provider credential.</small></label><button class="button secondary" disabled={busy}>Save messaging provider</button>{#if clinic.providers.length > 0}<ul class="config-list">{#each clinic.providers as provider}<li><strong>{provider.channel} · {provider.kind}</strong><span>Receipt URL: {origin}/api/v1/providers/{provider.kind === 'twilio' ? 'twilio/' : 'resend/'}{provider.id}/receipts</span></li>{/each}</ul>{/if}</form>
         </section>
         <section class="ledger-panel" aria-labelledby="clinic-ledger-title"><div class="panel-heading"><div><p class="eyebrow">Delivery ledger</p><h2 id="clinic-ledger-title">Real reminder evidence</h2></div><span>{clinic.location_name} · {clinic.timezone}</span></div>
           {#if clinic.reminders.length === 0}<div class="state-panel"><h3>No appointments received</h3><p>Connect your source and send its first signed appointment batch.</p></div>{:else}<ul class="real-list">{#each clinic.reminders as reminder}<li><div><strong>{reminder.appointment_time} · {reminder.patient_alias}</strong><span>{reminder.source_id}</span></div><div><strong>{statusLabel(reminder.status)}</strong><span>{reminder.timeline.at(-1)?.outcome}</span></div><div>{reminder.channels.map((item) => `${item.channel}: ${item.consent}`).join(' → ')}</div><button class="button secondary" onclick={() => dispatchReminder(reminder.id)} disabled={busy || reminder.status !== 'scheduled'}>Dispatch approved reminder</button>{#if reminder.exception}<label>Exception owner<input value={reminder.exception.owner ?? ''} aria-label={`Exception owner for ${reminder.patient_alias}`} onblur={(event) => saveException(reminder.exception!.id, 'assign', event.currentTarget.value)} /></label>{#if reminder.exception.owner && reminder.exception.state !== 'resolved'}<button class="text-button" onclick={() => saveException(reminder.exception!.id, 'resolve', 'Called patient')}>Resolve as Called patient</button>{/if}{/if}</li>{/each}</ul>{/if}
         </section>
-        <section class="billing-panel" aria-labelledby="billing-title"><div><p class="eyebrow">Subscription</p><h2 id="billing-title">Clinic plan</h2><p>$79 per location each month. Delivery-provider fees are separate. Checkout and subscription status are handled by Sociobot.</p><p><strong>Status:</strong> {clinic.subscription.status === 'active' ? 'Active' : 'Required before live dispatch'}</p></div><button class="button primary" onclick={startCheckout} disabled={busy}>Subscribe through Sociobot <span class="sr-only">(opens Sociobot checkout)</span></button></section>
+        <section class="billing-panel" aria-labelledby="billing-title"><div><p class="eyebrow">Subscription</p><h2 id="billing-title">Clinic plan</h2><p>$79 per location each month. Messaging-provider fees are separate. Checkout and subscription status are handled by Sociobot.</p><p><strong>Status:</strong> {clinic.subscription.status === 'active' ? 'Active' : 'Required before live dispatch'}</p></div><button class="button primary" onclick={startCheckout} disabled={busy}>Subscribe through Sociobot <span class="sr-only">(opens Sociobot checkout)</span></button></section>
         <div class="data-actions"><button class="text-button" onclick={exportClinic}>Export clinic data</button><button class="text-button danger-action" onclick={deleteClinic}>Delete clinic workspace</button><span>Export includes minimized reminder evidence and exceptions.</span></div>
       {/if}
     </section>
   {:else if pagePath === '/privacy'}
-    <section class="legal-page" aria-labelledby="page-title"><p class="eyebrow">Privacy</p><h1 id="page-title" tabindex="-1">How Reminder Proof handles data</h1><p class="lede">The public demo and signed-in clinic workspaces are separate.</p><h2>Public demo</h2><p>An HttpOnly, Secure browser cookie holds compact fictional sample state. It expires within 24 hours.</p><h2>Managed clinic data</h2><p>Clinic data is stored on the service and scoped to the stable Entra account ID. Provider credentials are encrypted and never returned to the browser.</p><h2>Minimum patient data</h2><p>Use aliases, contact destinations, consent evidence, and appointment times. Do not store clinical notes, diagnoses, or treatment details.</p><h2>Providers and billing</h2><p>Real dispatch sends the approved reminder to the configured Twilio or Resend endpoint. Subscription checkout and verification use Sociobot.</p><h2>Tracking and control</h2><p>No tracking script loads. Signed-in clinics can export or delete their workspace. Do not use Reminder Proof as a medical record.</p></section>
+    <section class="legal-page" aria-labelledby="page-title"><p class="eyebrow">Privacy</p><h1 id="page-title" tabindex="-1">How Reminder Proof handles data</h1><p class="lede">The public demo and signed-in clinic workspaces are separate.</p><h2>Public demo</h2><p>An HttpOnly, Secure browser cookie holds compact fictional sample state. It expires within 24 hours.</p><h2>Managed clinic data</h2><p>Clinic data is stored on the service and scoped to the stable Entra account ID. Messaging-provider credentials are encrypted and never returned to the browser.</p><h2>Minimum patient data</h2><p>Use aliases, contact destinations, consent evidence, and appointment times. Do not store clinical notes, diagnoses, or treatment details.</p><h2>Messaging providers and billing</h2><p>Real dispatch sends the approved reminder to the configured Twilio or Resend endpoint. Subscription checkout and verification use Sociobot.</p><h2>Tracking and control</h2><p>No tracking script loads. Signed-in clinics can export or delete their workspace. Do not use Reminder Proof as a medical record.</p></section>
   {:else if pagePath === '/terms'}
-    <section class="legal-page" aria-labelledby="page-title"><p class="eyebrow">Terms</p><h1 id="page-title" tabindex="-1">Terms for Reminder Proof</h1><p class="lede">Reminder Proof is a delivery-evidence layer for clinic reminder operations. It is not a medical system and does not provide medical advice.</p><h2>Sample clinic</h2><p>The public demo uses fictional sample data and simulated provider outcomes. Do not enter real patient or clinic information into it.</p><h2>Monthly plan</h2><p>The Clinic plan is $79 per location each month. Delivery-provider fees are separate. Sociobot is the checkout and subscription service.</p><h2>Clinic responsibilities</h2><p>Clinic operators remain responsible for consent, lawful messaging, approved provider accounts, source records, and local privacy obligations.</p></section>
+    <section class="legal-page" aria-labelledby="page-title"><p class="eyebrow">Terms</p><h1 id="page-title" tabindex="-1">Terms for Reminder Proof</h1><p class="lede">Reminder Proof is a delivery-evidence layer for clinic reminder operations. It is not a medical system and does not provide medical advice.</p><h2>Sample clinic</h2><p>The public demo uses fictional sample data and simulated messaging-provider outcomes. Do not enter real patient or clinic information into it.</p><h2>Monthly plan</h2><p>The Clinic plan is $79 per location each month. Messaging-provider fees are separate. Sociobot is the checkout and subscription service.</p><h2>Clinic responsibilities</h2><p>Clinic operators remain responsible for consent, lawful messaging, approved messaging-provider accounts, source records, and local privacy obligations.</p></section>
   {:else}
-    <section class="not-found" aria-labelledby="page-title"><PulseLedger label="A quiet empty proof ledger." /><div><p class="eyebrow">404</p><h1 id="page-title" tabindex="-1">This page has no ledger entry</h1><p>Return to the page that explains the sample clinic.</p><a class="button primary" href="/" onclick={(event) => follow(event, '/')}>Go to Reminder Proof</a></div></section>
+    <section class="not-found" aria-labelledby="page-title"><PulseLedger label="A quiet empty proof ledger." /><div><p class="eyebrow">404</p><h1 id="page-title" tabindex="-1">Page not found</h1><p>This address does not match a page. Return to the Reminder Proof home page.</p><a class="button primary" href="/" onclick={(event) => follow(event, '/')}>Go to Reminder Proof</a></div></section>
   {/if}
 </main>
 
-<footer class="site-footer"><p>Reminder Proof records delivery evidence and staff-owned exceptions around an existing clinic calendar.</p><nav aria-label="Footer"><a href="/privacy" onclick={(event) => follow(event, '/privacy')}>Privacy</a><a href="/terms" onclick={(event) => follow(event, '/terms')}>Terms</a><a href="https://sociobot.in" rel="external">Built by Param Factory <span class="sr-only">(opens Sociobot)</span></a></nav><small>managed-clinic-workflow</small></footer>
+<footer class="site-footer"><p>Reminder Proof records delivery evidence and staff-owned exceptions around an existing clinic calendar.</p><nav aria-label="Footer"><a href="/privacy" onclick={(event) => follow(event, '/privacy')}>Privacy</a><a href="/terms" onclick={(event) => follow(event, '/terms')}>Terms</a><a href="https://sociobot.in" rel="external">Built by Param Factory <span class="sr-only">(opens Sociobot)</span></a></nav><small title={buildSha}>Build {shortBuildSha}</small></footer>

@@ -16,7 +16,7 @@ export function foldReminderOutcome(events: ReminderEvent[]): 'delivered' | 'exc
 
 export const stateCopy = {
   empty: 'No reminders are due in this range.',
-  providerPending: 'The provider accepted this attempt. Delivery is not confirmed yet.',
+  providerPending: 'The messaging provider accepted this attempt. Delivery is not confirmed yet.',
   exhausted: 'No allowed channel delivered this reminder. Assign someone to follow up.',
   offline: 'You’re offline. Sending and resolving are unavailable.'
 } as const;

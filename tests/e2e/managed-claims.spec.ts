@@ -18,12 +18,12 @@ async function cargoClaim(name: string): Promise<string> {
   return `${stdout}\n${stderr}`;
 }
 
-test('@claim:managed-provider-fallback-receipt A rejected approved channel falls back and a signed receipt records delivery.', async () => {
+test('@claim:managed-provider-fallback-receipt A rejected approved channel tries the next consented channel and records delivery.', async () => {
   const output = await cargoClaim('clinic::tests::managed_claim_provider_fallback_and_receipt_is_observable');
   expect(output).toContain('managed_claim_provider_fallback_and_receipt_is_observable ... ok');
 });
 
-test('@claim:signed-calendar-intake Signed calendar intake rejects altered signatures and upserts duplicate source IDs.', async () => {
+test('@claim:signed-calendar-intake Signed calendar intake rejects altered signatures and stores duplicate source IDs once.', async () => {
   const output = await cargoClaim('clinic::tests::managed_claim_signed_calendar_intake_is_authenticated_and_idempotent');
   expect(output).toContain('managed_claim_signed_calendar_intake_is_authenticated_and_idempotent ... ok');
 });
@@ -43,7 +43,7 @@ test('@claim:resend-receipt-verification Resend callbacks require valid Svix sig
   expect(output).toContain('managed_claim_resend_receipt_verification_is_replay_safe ... ok');
 });
 
-test('@claim:managed-secret-encryption Provider secrets and destinations remain encrypted outside the authorized adapter.', async () => {
+test('@claim:managed-secret-encryption Messaging-provider secrets and destinations remain encrypted outside the authorized adapter.', async () => {
   const output = await cargoClaim('clinic::tests::managed_claim_secrets_and_destinations_are_encrypted_and_adapter_scoped');
   expect(output).toContain('managed_claim_secrets_and_destinations_are_encrypted_and_adapter_scoped ... ok');
 });

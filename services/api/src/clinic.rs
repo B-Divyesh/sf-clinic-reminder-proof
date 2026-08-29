@@ -1024,7 +1024,7 @@ pub async fn configure_provider(
         .into_response());
     }
     for (value, message) in [
-        (&input.secret, "Enter the provider credential."),
+        (&input.secret, "Enter the messaging-provider credential."),
         (&input.from, "Enter the approved sender."),
         (
             &input.approved_template_id,
@@ -1150,7 +1150,7 @@ pub async fn dispatch(
                         kind: "provider-accepted".to_owned(),
                         channel: Some(channel.channel.clone()),
                         outcome:
-                            "Provider accepted the approved reminder; delivery receipt is pending"
+                            "Messaging provider accepted the approved reminder; delivery receipt is pending"
                                 .to_owned(),
                         provider_reference: Some(reference),
                         provider_code: Some(idempotency.to_owned()),
@@ -1160,8 +1160,9 @@ pub async fn dispatch(
                     at: now(),
                     kind: "provider-failed".to_owned(),
                     channel: Some(channel.channel.clone()),
-                    outcome: "Provider rejected this attempt; fallback evaluation continued"
-                        .to_owned(),
+                    outcome:
+                        "Messaging provider rejected this attempt; fallback evaluation continued"
+                            .to_owned(),
                     provider_reference: None,
                     provider_code: Some(format!("{idempotency}:{code}")),
                 },
@@ -1175,7 +1176,7 @@ pub async fn dispatch(
         if !delivered {
             open_exception(
                 &mut workspace.reminders[index],
-                "No configured, consented provider accepted this reminder.",
+                "No configured, consented messaging provider accepted this reminder.",
             );
         }
     }
@@ -1386,7 +1387,7 @@ pub async fn provider_receipt(
         return Err(ApiError::new(
             StatusCode::NOT_FOUND,
             "connector_missing",
-            "This provider webhook is not active.",
+            "This messaging-provider webhook is not active.",
         )
         .into_response());
     };
@@ -1399,7 +1400,7 @@ pub async fn provider_receipt(
             ApiError::new(
                 StatusCode::NOT_FOUND,
                 "provider_missing",
-                "This provider webhook is not active.",
+                "This messaging-provider webhook is not active.",
             )
             .into_response()
         })?;
@@ -1411,7 +1412,7 @@ pub async fn provider_receipt(
             ApiError::new(
                 StatusCode::UNAUTHORIZED,
                 "signature_missing",
-                "Send a signed provider timestamp and signature.",
+                "Send a signed messaging-provider timestamp and signature.",
             )
             .into_response()
         })?;
@@ -1419,7 +1420,7 @@ pub async fn provider_receipt(
         return Err(ApiError::new(
             StatusCode::UNAUTHORIZED,
             "signature_expired",
-            "The provider signature is older than five minutes.",
+            "The messaging-provider signature is older than five minutes.",
         )
         .into_response());
     }
@@ -1430,7 +1431,7 @@ pub async fn provider_receipt(
             ApiError::new(
                 StatusCode::UNAUTHORIZED,
                 "signature_missing",
-                "Send a signed provider timestamp and signature.",
+                "Send a signed messaging-provider timestamp and signature.",
             )
             .into_response()
         })?;
@@ -1446,7 +1447,7 @@ pub async fn provider_receipt(
         return Err(ApiError::new(
             StatusCode::UNAUTHORIZED,
             "signature_invalid",
-            "The provider receipt signature is invalid.",
+            "The messaging-provider receipt signature is invalid.",
         )
         .into_response());
     }
@@ -1739,7 +1740,7 @@ async fn record_receipt(
         return Err(ApiError::new(
             StatusCode::NOT_FOUND,
             "provider_missing",
-            "This provider receipt endpoint is not active.",
+            "This messaging-provider receipt endpoint is not active.",
         )
         .into_response());
     };
@@ -1763,7 +1764,7 @@ async fn record_receipt(
             ApiError::new(
                 StatusCode::NOT_FOUND,
                 "attempt_missing",
-                "No reminder attempt matches this provider reference.",
+                "No reminder attempt matches this messaging-provider reference.",
             )
             .into_response()
         })?;
@@ -1819,7 +1820,7 @@ async fn record_receipt(
             .await
             {
                 Ok(reference) => {
-                    workspace.reminders[reminder_index].timeline.push(ClinicEvent { at: now(), kind: "provider-accepted".to_owned(), channel: Some(channel.channel), outcome: "Fallback provider accepted the approved reminder; delivery receipt is pending".to_owned(), provider_reference: Some(reference), provider_code: Some(fallback_key) });
+                    workspace.reminders[reminder_index].timeline.push(ClinicEvent { at: now(), kind: "provider-accepted".to_owned(), channel: Some(channel.channel), outcome: "Fallback messaging provider accepted the approved reminder; delivery receipt is pending".to_owned(), provider_reference: Some(reference), provider_code: Some(fallback_key) });
                     workspace.reminders[reminder_index].status = "provider-accepted".to_owned();
                     accepted = true;
                     break;
@@ -1830,7 +1831,7 @@ async fn record_receipt(
                         at: now(),
                         kind: "provider-failed".to_owned(),
                         channel: Some(channel.channel),
-                        outcome: "Fallback provider rejected this attempt".to_owned(),
+                        outcome: "Fallback messaging provider rejected this attempt".to_owned(),
                         provider_reference: None,
                         provider_code: Some(format!("{fallback_key}:{code}")),
                     }),
@@ -1839,7 +1840,7 @@ async fn record_receipt(
         if !accepted {
             open_exception(
                 &mut workspace.reminders[reminder_index],
-                "The provider reported a terminal failure and no allowed fallback was accepted.",
+                "The messaging provider reported a terminal failure and no allowed fallback was accepted.",
             );
         }
     }
@@ -2209,7 +2210,7 @@ mod tests {
             at: now(),
             kind: "provider-accepted".to_owned(),
             channel: Some(channel.to_owned()),
-            outcome: "Provider accepted the approved reminder".to_owned(),
+            outcome: "Messaging provider accepted the approved reminder".to_owned(),
             provider_reference: Some(reference.to_owned()),
             provider_code: Some("fixture-dispatch".to_owned()),
         });

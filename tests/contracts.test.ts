@@ -96,16 +96,19 @@ describe('planning scaffold contracts', () => {
     expect(description).not.toMatch(/seamless|effortless|robust|powerful|intuitive|reimagine|supercharge|delightful|journey|ecosystem|AI-powered/i);
   });
 
-  test('README plain-words repairs keep each reviewed sentence short and concrete', async () => {
+  test('README cumulative plain-words repairs keep each reviewed sentence short and concrete', async () => {
     const readme = await readRepositoryFile('README.md');
     const required = [
       'Reminder Proof records each appointment reminder outcome for independent clinics.',
-      'It shows source details, consent, provider evidence, and the staff owner.',
+      'It shows source details, consent, messaging-provider evidence, and the staff owner.',
       'Advance the sample reminders and inspect their evidence.',
       'Assign or resolve the sample exception, undo a resolution, and reset the sample clinic.',
       'Reminder Proof checks recorded consent before sending.',
-      'It records provider receipts and opens a shared exception when delivery proof is missing.',
-      'A same-origin service protects demo sessions and clinic data.',
+      'It records messaging-provider receipts and opens a shared exception when delivery proof is missing.',
+      'A protected browser cookie keeps the sample available for 24 hours, including after a server restart.',
+      'A service on this site keeps demo sessions separate from clinic data.',
+      'A signed calendar/EMR connection stores each appointment once, even when it receives the same update twice.',
+      'The site includes pulse-ledger art, a favicon, a touch icon, a social card, and self-hosted Instrument Sans and Fragment Mono fonts.',
       'It includes rate limits, health checks, and machine-readable metrics.',
       'Each saved change writes a matching durable database and key under `DURABLE_DIR`.',
       'A daily recovery copy is kept under `BACKUP_DIR` for 30 days.',
@@ -121,8 +124,40 @@ describe('planning scaffold contracts', () => {
       'You can advance sample reminders, inspect provider evidence',
       'A Rust/axum same-origin API with isolated demo cookies',
       'Each acknowledged workspace mutation synchronously checkpoints',
-      'Separate durable Azure Files shares mount directly'
+      'Separate durable Azure Files shares mount directly',
+      'Try the public sandbox',
+      'HttpOnly, Secure browser cookie',
+      'A same-origin service protects',
+      'idempotent appointment upserts',
+      'Original hand-authored',
+      'Delivery-provider fees',
+      'approved delivery providers',
+      'consent, provider evidence',
+      'It records provider receipts'
     ]) expect(readme).not.toContain(removed);
+
+    expect(readme).toContain('## Try the demo');
+  });
+
+  test('review-three public copy uses direct 404 and messaging-provider terms', async () => {
+    const app = await readRepositoryFile('apps/web/src/App.svelte');
+    expect(app).toContain("heading: 'Page not found'");
+    expect(app).toContain('>Page not found</h1>');
+    expect(app).toContain('Build {shortBuildSha}');
+    for (const ambiguous of [
+      'each attempt, provider result',
+      'Every provider result',
+      '>Provider result<',
+      '>Provider mode<',
+      'with provider evidence',
+      'Simulated provider events',
+      'simulated provider attempt',
+      'Delivery-provider',
+      '<h2>Approved provider',
+      '>Provider credential<',
+      '>Save provider<',
+      '>Provider proof<'
+    ]) expect(app).not.toContain(ambiguous);
   });
 });
 

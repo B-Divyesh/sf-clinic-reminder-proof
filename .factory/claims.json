@@ -11,28 +11,28 @@
     "claim": "Every due sample reminder has delivery evidence or a staff-owned exception.",
     "where": "landing preview, demo ledger summary",
     "test": "npm run test:e2e -- --grep @claim:sample-outcome-coverage",
-    "sandbox": "fresh seeded demo; advance all due reminders; assert each terminal reminder has a provider delivery event or an open, assigned, or resolved exception and the displayed numerator equals the rows"
+    "sandbox": "fresh seeded demo; advance all due reminders; assert each terminal reminder has a messaging-provider delivery event or an open, assigned, or resolved exception and the displayed numerator equals the rows"
   },
   {
     "id": "consent-channel-guard",
     "claim": "A sample channel without recorded consent is blocked before dispatch.",
     "where": "demo reminder timeline, how it works",
     "test": "npm run test:e2e -- --grep @claim:consent-channel-guard",
-    "sandbox": "fresh seeded demo; advance the opt-out appointment; assert the channel is marked blocked, no provider-attempt event exists, and a visible exception gives the next staff action"
+    "sandbox": "fresh seeded demo; advance the opt-out appointment; assert the channel is marked blocked, no messaging-provider attempt exists, and a visible exception gives the next staff action"
   },
   {
     "id": "fallback-order",
     "claim": "A simulated delivery failure tries the next allowed sample channel.",
     "where": "landing preview, demo reminder timeline",
     "test": "npm run test:e2e -- --grep @claim:fallback-order",
-    "sandbox": "fresh seeded demo; advance the provider-rejection appointment; assert the first attempt fails, the second channel matches policy order and consent, and the second attempt is labeled Simulated"
+    "sandbox": "fresh seeded demo; advance the messaging-provider rejection appointment; assert the first attempt fails, the second channel matches policy order and consent, and the second attempt is labeled Simulated"
   },
   {
     "id": "delivery-timeline",
-    "claim": "The sample timeline shows the channel, time, provider result, and exact outcome for each attempt.",
+    "claim": "The sample timeline shows the channel, time, messaging-provider result, and exact outcome for each attempt.",
     "where": "demo reminder evidence",
     "test": "npm run test:e2e -- --grep @claim:delivery-timeline",
-    "sandbox": "fresh seeded demo; open the delivered and fallback reminders; assert visible labels and accessible text contain channel, timestamp, simulated provider result, and outcome in chronological order"
+    "sandbox": "fresh seeded demo; open the delivered and fallback reminders; assert visible labels and accessible text contain channel, timestamp, simulated messaging-provider result, and outcome in chronological order"
   },
   {
     "id": "exception-ownership",
@@ -85,10 +85,10 @@
   },
   {
     "id": "no-tracking",
-    "claim": "No tracking script or third-party runtime request loads.",
+    "claim": "No tracking script or third-party runtime request loads, and page fonts come from this site.",
     "where": "Privacy page, README",
     "test": "npm run test:e2e -- --grep @claim:no-tracking",
-    "sandbox": "fresh browser context; record every request from landing through one-click demo entry and assert every URL is same-origin"
+    "sandbox": "fresh browser context; record every request from landing through one-click demo entry; assert every URL is same-origin and the loaded font files come from the product origin"
   },
   {
     "id": "explicit-theme-choice",
@@ -120,10 +120,10 @@
   },
   {
     "id": "build-identity",
-    "claim": "Health reports the running build identity and metrics are machine-readable.",
-    "where": "README",
+    "claim": "The footer identifies the running build reported by health, and metrics are machine-readable.",
+    "where": "site footer, README",
     "test": "npm run test:e2e -- --grep @claim:build-identity",
-    "sandbox": "fresh public session; assert health JSON contains status and build_sha and metrics returns Prometheus text"
+    "sandbox": "fresh public session; assert health JSON contains build_sha, the footer displays its exact short prefix on every route, and metrics returns Prometheus text"
   },
   {
     "id": "managed-auth-storage",
@@ -134,7 +134,7 @@
   },
   {
     "id": "signed-calendar-intake",
-    "claim": "The calendar intake verifies its signature and upserts each source appointment once.",
+    "claim": "The calendar intake verifies its signature and stores each source appointment once.",
     "where": "README connector inventory and clinic integration contract",
     "test": "npm run test:e2e -- --grep @claim:signed-calendar-intake",
     "sandbox": "fresh fixture clinic with an encrypted connector secret; post one correctly signed appointment batch twice and assert one source reminder exists, then alter the payload with an invalid signature and assert rejection with no state change"
@@ -142,7 +142,7 @@
   {
     "id": "approved-whatsapp-dispatch",
     "claim": "A consented WhatsApp reminder uses the configured approved template and records a signed receipt.",
-    "where": "README provider inventory and clinic integration contract",
+    "where": "README messaging-provider inventory and clinic integration contract",
     "test": "npm run test:e2e -- --grep @claim:approved-whatsapp-dispatch",
     "sandbox": "fresh paid fixture clinic with recorded WhatsApp consent and an approved Twilio template; dispatch once, capture the exact adapter request with no free-form body, submit a correctly signed delivery callback, and assert delivered evidence is stored"
   },
@@ -162,10 +162,10 @@
   },
   {
     "id": "managed-secret-encryption",
-    "claim": "Provider credentials and patient destinations are encrypted at rest and omitted from workspace exports.",
+    "claim": "Messaging-provider credentials and patient destinations are encrypted at rest and omitted from workspace exports.",
     "where": "README clinic integration contract and Privacy page",
     "test": "npm run test:e2e -- --grep @claim:managed-secret-encryption",
-    "sandbox": "fresh fixture clinic saves unique provider credentials, webhook secret, and destination; assert plaintext is absent from local and durable databases and the export, then dispatch and assert only the authorized provider adapter receives the decrypted credential and destination"
+    "sandbox": "fresh fixture clinic saves unique messaging-provider credentials, webhook secret, and destination; assert plaintext is absent from local and durable databases and the export, then dispatch and assert only the authorized adapter receives the decrypted credential and destination"
   },
   {
     "id": "managed-data-minimisation",
@@ -190,17 +190,17 @@
   },
   {
     "id": "managed-provider-fallback-receipt",
-    "claim": "A rejected approved channel tries the next consented provider and a signed receipt records delivery.",
+    "claim": "A rejected approved channel tries the next consented channel, and a signed receipt records delivery.",
     "where": "Start for real, clinic workspace, README",
     "test": "npm run test:e2e -- --grep @claim:managed-provider-fallback-receipt",
-    "sandbox": "a fixture HTTP SMS provider rejects, fixture email accepts, the persisted timeline records both outcomes in order, and a receipt changes the reminder to delivered"
+    "sandbox": "a fixture HTTP SMS messaging provider rejects, fixture email accepts, the persisted timeline records both outcomes in order, and a receipt changes the reminder to delivered"
   },
   {
     "id": "managed-billing-return",
     "claim": "Clinic checkout is hosted by Sociobot and a valid return activates the clinic subscription.",
     "where": "Start for real, clinic workspace, README",
     "test": "npm run test:e2e -- --grep @claim:managed-billing-return",
-    "sandbox": "a fixture Sociobot checkout responds with a redirect, the same-origin route returns only that URL, and its fixture verification response activates the saved subscription"
+    "sandbox": "a fixture Sociobot checkout responds with a redirect, the site's billing route returns only that URL, and its fixture verification response activates the saved subscription"
   },
   {
     "id": "managed-storage-recovery",

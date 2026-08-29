@@ -61,8 +61,8 @@ test('@claim:consent-channel-guard A sample channel without recorded consent is 
   await openDemo(page);
   await page.getByRole('link', { name: /View evidence for Sofia R/ }).click();
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Evidence for Today, 14:00 appointment');
-  await expect(page.locator('.timeline-panel')).toContainText('SMS is blocked by an opt-out. No provider attempt was made.');
-  await expect(page.locator('.timeline-panel')).not.toContainText('Provider result');
+  await expect(page.locator('.timeline-panel')).toContainText('SMS is blocked by an opt-out. No messaging-provider attempt was made.');
+  await expect(page.locator('.timeline-panel')).not.toContainText('Messaging-provider result');
   await expect(page.locator('.detail-exception')).toContainText('Assign someone to follow up.');
 });
 
@@ -73,22 +73,22 @@ test('@claim:fallback-order A simulated delivery failure tries the next allowed 
   const timeline = page.locator('.timeline-panel');
   await expect(timeline).toContainText('WhatsApp');
   await expect(timeline).toContainText('TEMPLATE_REJECTED');
-  await expect(timeline).toContainText('Email fallback accepted by the simulated provider.');
-  await expect(timeline).toContainText('Provider modeSimulated');
+  await expect(timeline).toContainText('Email fallback accepted by the simulated messaging provider.');
+  await expect(timeline).toContainText('Messaging-provider modeSimulated');
   const attempts = timeline.locator('li').filter({ hasText: /WhatsApp|Email/ });
   await expect(attempts).toHaveCount(3);
 });
 
-test('@claim:delivery-timeline The sample timeline shows the channel, time, provider result, and exact outcome for each attempt.', async ({ page }) => {
+test('@claim:delivery-timeline The sample timeline shows the channel, time, messaging-provider result, and exact outcome for each attempt.', async ({ page }) => {
   await openDemo(page);
   await page.getByRole('button', { name: 'Advance due reminders' }).click();
   await page.getByRole('link', { name: /View evidence for Mina P/ }).click();
   const timeline = page.locator('.timeline-panel');
   await expect(timeline).toContainText('08:01');
   await expect(timeline).toContainText('ChannelSMS');
-  await expect(timeline).toContainText('Provider resultDELIVERED-200');
+  await expect(timeline).toContainText('Messaging-provider resultDELIVERED-200');
   await expect(timeline).toContainText('OutcomeDelivered');
-  await expect(timeline).toContainText('Provider modeSimulated');
+  await expect(timeline).toContainText('Messaging-provider modeSimulated');
 });
 
 test('@claim:exception-ownership Staff can assign and resolve a sample exception.', async ({ page }) => {
@@ -189,7 +189,7 @@ test('@claim:demo-replica-continuity Demo changes remain after navigation, reloa
   await expect(page.getByLabel('Owner for Sofia R.')).toHaveValue('Sam Rivera');
 });
 
-test('@claim:no-tracking No tracking script or third-party runtime request loads.', async ({ page }) => {
+test('@claim:no-tracking No tracking script or third-party runtime request loads, and page fonts come from this site.', async ({ page }) => {
   const requests: string[] = [];
   page.on('request', (request) => requests.push(request.url()));
   await page.goto('/');
@@ -198,6 +198,21 @@ test('@claim:no-tracking No tracking script or third-party runtime request loads
   const origin = new URL(page.url()).origin;
   expect(requests.length).toBeGreaterThan(2);
   expect(requests.every((url) => new URL(url).origin === origin)).toBe(true);
+  const fontRequests = requests.filter((url) => /\.woff2?(?:$|\?)/.test(url));
+  expect(fontRequests.length).toBeGreaterThanOrEqual(2);
+  expect(fontRequests.every((url) => new URL(url).origin === origin)).toBe(true);
+  const stylesheetPath = await page.locator('link[rel="stylesheet"]').getAttribute('href');
+  const stylesheet = await page.request.get(stylesheetPath!);
+  const stylesheetText = await stylesheet.text();
+  expect(stylesheetText).toContain('font-family:Instrument Sans Variable');
+  expect(stylesheetText).toContain('font-family:Fragment Mono');
+  const declaredFonts = [...stylesheetText.matchAll(/url\(([^)]+\.(?:woff2?|ttf))\)/g)].map((match) => match[1]);
+  expect(declaredFonts.length).toBeGreaterThanOrEqual(2);
+  for (const fontPath of declaredFonts) {
+    const fontUrl = new URL(fontPath, new URL(stylesheetPath!, page.url())).href;
+    expect(new URL(fontUrl).origin).toBe(origin);
+    expect((await page.request.get(fontUrl)).status()).toBe(200);
+  }
 });
 
 test('@claim:request-protection JSON API writes enforce content type and 16 KB body limits with structured errors.', async ({ page }) => {
@@ -279,10 +294,16 @@ test('@claim:security-headers Responses use the documented browser security and 
   expect(assetResponse.headers()['cache-control']).toContain('immutable');
 });
 
-test('@claim:build-identity Health reports the running build identity and metrics are machine-readable.', async ({ page }) => {
+test('@claim:build-identity The footer matches the running build identity and metrics are machine-readable.', async ({ page }) => {
   const health = await page.request.get('/health');
   expect(health.status()).toBe(200);
-  expect(await health.json()).toMatchObject({ status: 'ok' });
+  const healthBody = await health.json() as { status: string; build_sha: string };
+  expect(healthBody).toMatchObject({ status: 'ok' });
+  expect(healthBody.build_sha.length).toBeGreaterThanOrEqual(3);
+  for (const path of ['/', '/demo', '/privacy', '/terms', '/404']) {
+    await page.goto(path);
+    await expect(page.locator('footer small')).toHaveText(`Build ${healthBody.build_sha.slice(0, 7)}`);
+  }
   const metrics = await page.request.get('/metrics', {
     headers: { 'x-forwarded-for': `198.18.200.${demoClient}` }
   });
@@ -294,7 +315,7 @@ test('@claim:managed-auth-storage Clinics use protected Entra-managed workspace 
   await page.goto('/start');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Connect your clinic reminders');
   await expect(page.getByText('Sociobot Microsoft Entra protects each clinic workspace.')).toBeVisible();
-  await expect(page.getByText('A signed calendar feed and encrypted provider credentials keep systems separate.')).toBeVisible();
+  await expect(page.getByText('A signed calendar feed and encrypted messaging-provider credentials keep systems separate.')).toBeVisible();
   await expect(page.getByText('Consent, fallback attempts, signed receipts, and staff action stay in one timeline.')).toBeVisible();
   await expect(page.locator('input[type="file"]')).toHaveCount(0);
   expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('real:')))).toEqual([]);
@@ -478,5 +499,5 @@ test('managed clinic entry works at 390px, 200% text, reduced motion, and keyboa
 test('unknown browser routes return an HTTP 404 with the styled recovery page', async ({ page }) => {
   const response = await page.goto('/missing-route');
   expect(response?.status()).toBe(404);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('This page has no ledger entry');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Page not found');
 });

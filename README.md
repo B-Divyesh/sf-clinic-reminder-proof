@@ -1,23 +1,23 @@
 # Reminder Proof
 
-Reminder Proof records each appointment reminder outcome for independent clinics. It shows source details, consent, provider evidence, and the staff owner. It sits beside an existing calendar or EMR; it is not a replacement scheduler or medical record.
+Reminder Proof records each appointment reminder outcome for independent clinics. It shows source details, consent, messaging-provider evidence, and the staff owner. It sits beside an existing calendar or EMR; it is not a replacement scheduler or medical record.
 
-## Try the public sandbox
+## Try the demo
 
-Open `/?demo=1` or `/demo`. The server creates a random, 24-hour sample workspace containing five fictional appointments. Its compact state stays in an HttpOnly, Secure browser cookie, so a restart or replica change does not lose the sample. Every provider event is visibly simulated. The demo never calls a messaging provider, checkout, account service, or clinic connector.
+Open `/?demo=1` or `/demo`. The server creates a random, 24-hour sample workspace containing five fictional appointments. A protected browser cookie keeps the sample available for 24 hours, including after a server restart. Every messaging-provider event is visibly simulated. The demo never calls a messaging provider, checkout, account service, or clinic connector.
 
 Advance the sample reminders and inspect their evidence. Assign or resolve the sample exception, undo a resolution, and reset the sample clinic.
 
-“Start for real” opens the managed clinic workflow. A clinic signs in through Sociobot Microsoft Entra, creates its workspace, connects a signed calendar feed, and configures approved delivery providers. Reminder Proof checks recorded consent before sending. It records provider receipts and opens a shared exception when delivery proof is missing.
+“Start for real” opens the managed clinic workflow. A clinic signs in through Sociobot Microsoft Entra, creates its workspace, connects a signed calendar feed, and configures approved messaging providers. Reminder Proof checks recorded consent before sending. It records messaging-provider receipts and opens a shared exception when delivery proof is missing.
 
 ## What is included
 
 - Public landing, demo ledger, reminder evidence, Privacy, Terms, and styled 404 routes.
-- A same-origin service protects demo sessions and clinic data. It includes rate limits, health checks, and machine-readable metrics.
-- A signed calendar/EMR webhook connector with idempotent appointment upserts.
+- A service on this site keeps demo sessions separate from clinic data. It includes rate limits, health checks, and machine-readable metrics.
+- A signed calendar/EMR connection stores each appointment once, even when it receives the same update twice.
 - Twilio SMS and approved WhatsApp dispatch, Resend email fallback, and signed receipt reconciliation.
-- Shared exception assignment and resolution, clinic export/delete, and Sociobot-hosted subscription checkout at $79 per location each month. Delivery-provider fees are separate.
-- Original hand-authored pulse-ledger art, favicon, touch icon, social card, and self-hosted Instrument Sans / Fragment Mono assets.
+- Shared exception assignment and resolution, clinic export/delete, and Sociobot-hosted subscription checkout at $79 per location each month. Messaging-provider fees are separate.
+- The site includes pulse-ledger art, a favicon, a touch icon, a social card, and self-hosted Instrument Sans and Fragment Mono fonts.
 - Playwright claim tests that begin with a fresh demo browser context. See [`.factory/claims.json`](.factory/claims.json).
 
 The public demo is always simulated. Live dispatch begins only after a signed-in clinic supplies approved sender credentials, template IDs, consent evidence, and a webhook signing secret.
@@ -43,12 +43,12 @@ All clinic routes require an Entra bearer token. The stable `oid` claim owns the
 
 - Create a signed calendar connector in `/app`. Post normalized appointment batches to `/api/v1/connectors/intake` with `X-Reminder-Timestamp` and `X-Reminder-Signature`.
 - Sign the UTF-8 string `<timestamp>:<connector-id>:<appointment-count>` with HMAC-SHA256. Encode the result as URL-safe base64 without padding.
-- Configure Twilio for SMS or approved WhatsApp templates, or Resend for email. Credentials and patient destinations are encrypted at rest.
+- Configure Twilio for SMS or approved WhatsApp templates, or Resend for email. Messaging-provider credentials and patient destinations are encrypted at rest.
 - Twilio receives its status callback URL during dispatch and is verified with `X-Twilio-Signature`. Resend receipt callbacks use its Svix headers (`svix-id`, `svix-timestamp`, and `svix-signature`) and the stored `whsec_…` webhook secret.
-- Receipt event IDs are idempotent. A terminal failure tries the next recorded-consent channel; exhaustion opens a shared exception.
+- Repeated receipt event IDs are ignored. A terminal failure tries the next recorded-consent channel; exhaustion opens a shared exception.
 - Reminder dispatch accepts one scheduled reminder ID and no client-supplied campaign copy. JSON API writes require `application/json`, accept at most 16 KB, and return structured errors with a correlatable request ID.
 - Signed-in clinics can export their own minimized workspace. Deletion requires the same clinic's organization ID as explicit confirmation.
-- The signed-in workspace requests checkout through the same-origin billing route, which returns only the Sociobot checkout URL. No payment provider is embedded.
+- The signed-in workspace requests checkout through this site, which returns only the Sociobot checkout URL. No payment provider is embedded.
 
 ## Verify
 
@@ -74,7 +74,7 @@ docker run --rm -p 8080:8080 -v reminder-durable:/durable -v reminder-backups:/b
 curl http://127.0.0.1:8080/health
 ```
 
-The factory deploys the container to `https://clinic-reminder-proof.sociobot.in`. Do not put provider keys, clinic data, payments, or Entra configuration in this repository.
+The factory deploys the container to `https://clinic-reminder-proof.sociobot.in`. Do not put messaging-provider keys, clinic data, payments, or Entra configuration in this repository.
 
 ## Privacy and terms
 

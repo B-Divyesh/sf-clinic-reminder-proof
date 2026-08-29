@@ -5,6 +5,9 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
   plugins: [svelte()],
+  define: {
+    __BUILD_SHA__: JSON.stringify(process.env.BUILD_SHA ?? 'dev')
+  },
   build: {
     outDir: fileURLToPath(new URL('../../dist', import.meta.url)),
     emptyOutDir: true,
