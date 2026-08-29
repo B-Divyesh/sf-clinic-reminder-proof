@@ -51,10 +51,20 @@ Rejected candidate: `26087e3d1b62a948a00e52bb5b060d2a8baded12`
 
 ## Production deployment and live checks
 
-The artifact remains a single container on port 8080. The two Azure Files
-storage bindings are ReadWrite and the checked-in deployment contract fixes
-`minReplicas=1` and `maxReplicas=1`. Live deployment evidence is recorded in
-the final section below after the release revision is activated.
+The artifact remains a single container on port 8080. Revision
+`sf-clinic-reminder-proof--0000021` ran commit
+`0526299f069f51e2d8b24942dd1bd8390c4b7c09`; public `/health` returned that
+exact SHA. Azure reported both ReadWrite mounts, `minReplicas=1`, and
+`maxReplicas=1`. An in-container probe ran as
+`uid=999(reminderproof) gid=999(reminderproof)`, created and removed files on
+both `/durable` and `/backups`, proving no root preparation is needed.
+
+The live `verify-url.sh` run passed in 718 ms with the correct title, `lang`,
+one `<h1>`, `<main>`, no missing alt text, no unnamed buttons, and no console
+errors. A stable-client production rate probe returned
+`200, 200, 200, 200, 200, 429`; response six included `Retry-After: 3599` and
+the `rate_limited` JSON code. Live CIAM discovery returned the required issuer
+and JWKS, and `/api/v1/auth/config` returned the required tenant and client.
 
 ## Needs operator action
 
