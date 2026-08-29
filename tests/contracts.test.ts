@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import { effectiveConsent, foldReminderOutcome, stateCopy } from '../apps/web/src/lib/reminder';
+import { buildTopologyPatch } from '../scripts/containerapp-topology.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
@@ -159,6 +160,45 @@ describe('planning scaffold contracts', () => {
       '>Save provider<',
       '>Provider proof<'
     ]) expect(app).not.toContain(ambiguous);
+  });
+
+  test('@regression:qa12-01 image deployment reapplies durable mounts and the single-replica boundary', async () => {
+    const topology = JSON.parse(await readRepositoryFile('deployment/containerapp.json'));
+    const brokenTemplate = {
+      properties: {
+        template: {
+          containers: [
+            {
+              name: 'app',
+              image: 'sociobotregistry.azurecr.io/sf-clinic-reminder-proof:broken',
+              env: [{ name: 'PORT', value: '8080' }],
+              resources: { cpu: 0.5, memory: '1Gi' }
+            }
+          ],
+          scale: { minReplicas: 1, maxReplicas: 3, cooldownPeriod: 300 },
+          volumes: null
+        }
+      }
+    };
+
+    const patch = buildTopologyPatch(
+      brokenTemplate,
+      topology,
+      'sociobotregistry.azurecr.io/sf-clinic-reminder-proof:repair'
+    );
+    const template = patch.properties.template;
+    expect(template.scale).toMatchObject({ minReplicas: 1, maxReplicas: 1 });
+    expect(template.volumes).toEqual(expect.arrayContaining([
+      { name: 'clinic-data', storageType: 'AzureFile', storageName: 'clinic-reminder-proof-data' },
+      { name: 'clinic-backups', storageType: 'AzureFile', storageName: 'clinic-reminder-proof-backups' }
+    ]));
+    expect(template.containers[0]).toMatchObject({
+      image: 'sociobotregistry.azurecr.io/sf-clinic-reminder-proof:repair',
+      volumeMounts: expect.arrayContaining([
+        { volumeName: 'clinic-data', mountPath: '/durable' },
+        { volumeName: 'clinic-backups', mountPath: '/backups' }
+      ])
+    });
   });
 });
 

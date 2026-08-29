@@ -45,8 +45,15 @@ pair restore into a fresh data directory and reads the original clinic.
 
 ## Release topology check
 
-After each Container Apps rollout, run `npm run verify:deployment` from this
-repository with Azure access. It fails unless the active revision has exactly
-one replica, both named Azure Files mounts, a healthy live endpoint, and a
-per-client demo creation boundary of five successful requests followed by 429
-with `Retry-After`.
+Build the image, then use `npm run deploy:container -- --image <image>` for
+every Container Apps rollout. The deploy command reads
+`deployment/containerapp.json` and patches the full revision template, so an
+image update cannot omit the two Azure Files mounts or increase the replica
+limit. It preserves factory-managed ingress, domains, identity, and app-level
+settings.
+
+After each rollout, run `npm run verify:deployment` from this repository with
+Azure access. It fails unless the active revision has exactly one replica,
+both named Azure Files mounts, a healthy live endpoint, and a per-client demo
+creation boundary of five successful requests followed by 429 with
+`Retry-After`.
