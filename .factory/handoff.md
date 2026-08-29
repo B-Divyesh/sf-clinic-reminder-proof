@@ -76,8 +76,9 @@ template and leaving Azure traffic metadata different from the running build.
   offline-read, privacy, route, response-policy, recovery, and CIAM journeys.
 - Accessibility: the in-suite Axe sweep passed on public routes and the
   standalone `@axe-core/cli` scan of `/`, `/demo`, `/privacy`, and `/terms`
-  reported zero violations. The browser routes have one H1, language, main,
-  landmarks, named controls, alt text, skip-link focus, and no console errors.
+  reported zero violations. Factory `verify-url.sh` passed: title, `lang=en`,
+  one H1, main landmark, image alt text, named buttons, and zero console or
+  page errors. The browser routes also verify landmarks and skip-link focus.
 - Lighthouse mobile: Performance 100, Accessibility 100, Best Practices 100,
   SEO 100; FCP 1.4 s, LCP 1.4 s, TBT 70 ms, CLS 0.001.
 - Privacy: the browser suite recorded only same-origin runtime requests in the
