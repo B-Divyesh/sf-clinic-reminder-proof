@@ -49,6 +49,7 @@ struct ClinicStore {
     connection: Arc<Mutex<Connection>>,
     cipher: Arc<Aes256Gcm>,
     key_path: Arc<PathBuf>,
+    durable_dir: Arc<PathBuf>,
     backup_dir: Arc<PathBuf>,
 }
 
@@ -280,6 +281,15 @@ impl From<ClinicWorkspace> for WorkspaceResponse {
 impl ClinicState {
     pub fn from_env() -> Result<Self, String> {
         let dir = data_dir();
+        let durable = env::var_os("DURABLE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                if dir == Path::new("/data") {
+                    PathBuf::from("/durable")
+                } else {
+                    dir.join("durable")
+                }
+            });
         let backups = env::var_os("BACKUP_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| {
@@ -289,13 +299,14 @@ impl ClinicState {
                     dir.join("backups")
                 }
             });
-        Self::new(dir, backups, AuthService::from_env(), None, None)
+        Self::new(dir, durable, backups, AuthService::from_env(), None, None)
     }
 
     #[cfg(test)]
     pub fn for_tests(path: PathBuf) -> Result<Self, String> {
         let backups = path.join("backups");
-        Self::new(path, backups, AuthService::for_tests(), None, None)
+        let durable = path.join("durable");
+        Self::new(path, durable, backups, AuthService::for_tests(), None, None)
     }
 
     #[cfg(test)]
@@ -305,8 +316,10 @@ impl ClinicState {
         provider_fixture_base_url: String,
     ) -> Result<Self, String> {
         let backups = path.join("backups");
+        let durable = path.join("durable");
         Self::new(
             path,
+            durable,
             backups,
             AuthService::for_tests(),
             Some(billing_base_url),
@@ -316,6 +329,7 @@ impl ClinicState {
 
     fn new(
         dir: PathBuf,
+        durable_dir: PathBuf,
         backup_dir: PathBuf,
         auth: AuthService,
         billing_base_url: Option<String>,
@@ -324,12 +338,16 @@ impl ClinicState {
         fs::create_dir_all(&dir).map_err(|error| format!("create data directory: {error}"))?;
         fs::create_dir_all(&backup_dir)
             .map_err(|error| format!("create backup directory: {error}"))?;
+        fs::create_dir_all(&durable_dir)
+            .map_err(|error| format!("create durable directory: {error}"))?;
         restrict_path(&dir, 0o700)?;
+        restrict_path(&durable_dir, 0o700)?;
         restrict_path(&backup_dir, 0o700)?;
         let key_path = dir.join("clinic-data.key");
+        let database_path = dir.join("clinic-data.sqlite3");
+        restore_durable_pair(&key_path, &database_path, &durable_dir)?;
         let key_was_generated = !key_path.exists();
         let key = load_or_create_key(&key_path)?;
-        let database_path = dir.join("clinic-data.sqlite3");
         let connection = Connection::open(&database_path)
             .map_err(|error| format!("open clinic database: {error}"))?;
         // SQLite honours the process umask on first creation. Make this
@@ -346,6 +364,7 @@ impl ClinicState {
                 connection: Arc::new(Mutex::new(connection)),
                 cipher: Arc::new(Aes256Gcm::new_from_slice(&key).map_err(|_| "invalid data key")?),
                 key_path: Arc::new(key_path),
+                durable_dir: Arc::new(durable_dir),
                 backup_dir: Arc::new(backup_dir),
             },
             client: reqwest::Client::builder()
@@ -386,6 +405,28 @@ fn load_or_create_key(path: &Path) -> Result<[u8; 32], String> {
     fs::write(path, key).map_err(|error| format!("persist data key: {error}"))?;
     restrict_path(path, 0o600)?;
     Ok(key)
+}
+
+fn restore_durable_pair(key: &Path, database: &Path, durable_dir: &Path) -> Result<(), String> {
+    if key.exists() || database.exists() {
+        return Ok(());
+    }
+    let durable_key = durable_dir.join("clinic-data.latest.key");
+    let durable_database = durable_dir.join("clinic-data.latest.sqlite3");
+    match (durable_key.exists(), durable_database.exists()) {
+        (false, false) => Ok(()),
+        (true, true) => {
+            fs::copy(&durable_key, key).map_err(|error| format!("restore data key: {error}"))?;
+            fs::copy(&durable_database, database)
+                .map_err(|error| format!("restore clinic database: {error}"))?;
+            restrict_path(key, 0o600)?;
+            restrict_path(database, 0o600)
+        }
+        _ => Err(
+            "durable clinic snapshot is incomplete; restore its matching key and database"
+                .to_owned(),
+        ),
+    }
 }
 
 fn restrict_path(path: &Path, mode: u32) -> Result<(), String> {
@@ -521,10 +562,10 @@ impl ClinicStore {
     }
 
     fn backup_locked(&self, connection: &Connection) -> Result<(), ApiError> {
-        let database_tmp = self.backup_dir.join("clinic-data.latest.sqlite3.tmp");
-        let database = self.backup_dir.join("clinic-data.latest.sqlite3");
-        let key_tmp = self.backup_dir.join("clinic-data.latest.key.tmp");
-        let key = self.backup_dir.join("clinic-data.latest.key");
+        let database_tmp = self.durable_dir.join("clinic-data.latest.sqlite3.tmp");
+        let database = self.durable_dir.join("clinic-data.latest.sqlite3");
+        let key_tmp = self.durable_dir.join("clinic-data.latest.key.tmp");
+        let key = self.durable_dir.join("clinic-data.latest.key");
         connection
             .backup(MAIN_DB, &database_tmp, None)
             .map_err(|_| internal())?;
@@ -2209,19 +2250,11 @@ mod tests {
             .is_file());
         drop(first);
 
-        let restore = path.join("restored");
-        fs::create_dir_all(&restore).unwrap();
-        fs::copy(
-            path.join("backups/clinic-data.latest.sqlite3"),
-            restore.join("clinic-data.sqlite3"),
-        )
-        .unwrap();
-        fs::copy(
-            path.join("backups/clinic-data.latest.key"),
-            restore.join("clinic-data.key"),
-        )
-        .unwrap();
-        let restored = ClinicState::for_tests(restore).unwrap();
+        assert!(path.join("durable/clinic-data.latest.sqlite3").is_file());
+        assert!(path.join("durable/clinic-data.latest.key").is_file());
+        fs::remove_file(path.join("clinic-data.sqlite3")).unwrap();
+        fs::remove_file(path.join("clinic-data.key")).unwrap();
+        let restored = ClinicState::for_tests(path.clone()).unwrap();
         assert_eq!(
             restored
                 .store

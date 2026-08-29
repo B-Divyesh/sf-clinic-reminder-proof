@@ -20,9 +20,9 @@ Rejected candidate: `26087e3d1b62a948a00e52bb5b060d2a8baded12`
   path `https://api.sociobot.in/api/v1/products/clinic-reminder-proof/checkout`.
   Catalog registration is controller-owned and was not changed here.
 - Made clinic persistence deployable by a non-root process without an init
-  container. Production uses one replica and two direct ReadWrite Azure Files
-  mounts: `/data` for the encrypted SQLite store/key and `/backups` for a
-  separate online SQLite backup/key pair.
+  container. Production uses one replica, local `/data` for the SQLite writer,
+  and two direct ReadWrite Azure Files mounts: `/durable` for the synchronous
+  database/key checkpoint and `/backups` for separate daily recovery pairs.
 - Every successful workspace save or deletion takes a SQLite online backup
   while holding the database mutex, atomically replaces the matching latest
   files, and retains daily recovery pairs for 30 days.

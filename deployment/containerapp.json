@@ -7,7 +7,7 @@
           "volumeMounts": [
             {
               "volumeName": "clinic-data",
-              "mountPath": "/data"
+              "mountPath": "/durable"
             },
             {
               "volumeName": "clinic-backups",

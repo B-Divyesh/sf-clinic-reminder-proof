@@ -9,13 +9,15 @@ for SQLite and the in-process per-client rate limiter. Do not raise
 `deployment/containerapp.json` attaches two independent ReadWrite Azure Files
 shares directly to the non-root application process:
 
-- `clinic-reminder-proof-data` at `/data` holds `clinic-data.sqlite3` and its
-  generated AES-256 key.
+- `clinic-reminder-proof-data` at `/durable` holds a consistent online SQLite
+  snapshot and its generated AES-256 key. SQLite itself runs on local `/data`,
+  avoiding unsupported SMB file locking.
 - `clinic-reminder-proof-backups` at `/backups` holds the latest consistent
   database backup and matching key.
 
 No init container, `chmod`, root process, or mount preparation is required.
-Startup fails before opening the listener if either location is not writable.
+Startup restores the durable pair before serving and fails closed if the pair
+is incomplete or either mounted location is not writable.
 Every successful workspace mutation uses SQLite's online backup API while the
 database mutex is held, then atomically replaces the latest backup pair. The
 first mutation each UTC day also creates a dated recovery pair; the service
