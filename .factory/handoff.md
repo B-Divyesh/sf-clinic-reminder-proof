@@ -1,3 +1,70 @@
+# Repair 4 handoff — release blockers repaired
+
+Date: 2026-08-29 UTC  
+Work order: `clinic-reminder-proof-repair-4`  
+Base verifier report: `e59bd22495b3efe9621c5875fb5131e45c4aa58f`  
+Rejected candidate: `26087e3d1b62a948a00e52bb5b060d2a8baded12`
+
+## What changed
+
+- Reproduced the exact declared `@claim:rate-limit-policy` failure first
+  (`Expected: 429`, `Received: 200`). The browser regression now keeps one
+  first `X-Forwarded-For` hop, varies only the proxy hop, asserts creates one
+  through five are 200, and asserts create six is structured 429 with a
+  positive `Retry-After`.
+- Split the managed provider and billing fixture into independent observable
+  Rust scenarios. Each claim now has its own exact Playwright
+  `@claim:managed-provider-fallback-receipt` or
+  `@claim:managed-billing-return` test and manifest command.
+- Preserved the public `$79 per location each month` price and the checkout
+  path `https://api.sociobot.in/api/v1/products/clinic-reminder-proof/checkout`.
+  Catalog registration is controller-owned and was not changed here.
+- Made clinic persistence deployable by a non-root process without an init
+  container. Production uses one replica and two direct ReadWrite Azure Files
+  mounts: `/data` for the encrypted SQLite store/key and `/backups` for a
+  separate online SQLite backup/key pair.
+- Every successful workspace save or deletion takes a SQLite online backup
+  while holding the database mutex, then atomically replaces the matching
+  backup files. `managed_backup_pair_restores_after_database_loss` restores
+  both files into a clean directory and reads the original tenant record.
+
+## Verification evidence
+
+- `npm ci`: PASS, 87 packages, zero vulnerabilities.
+- Exact pre-fix reproduction: `npm run test:e2e -- --grep
+  @claim:rate-limit-policy` failed 429 vs 200 as reported.
+- Exact repaired claims: rate limit, managed provider fallback/receipt, and
+  managed billing return all PASS independently and together.
+- `npm test`: PASS — 6 Vitest contracts, 23 Rust API tests, 24 Chromium tests.
+- `npm run check`: PASS — Svelte 0 errors/warnings, rustfmt, clippy
+  `-D warnings`.
+- `npm run build`: PASS — `dist/` and the release API binary produced. Public
+  entry JS is 80,084 bytes raw / 27,900 gzip; CSS is 24,505 / 5,310 gzip.
+- Browser suite: PASS at desktop and 390 px/200% text, keyboard-only and
+  reduced-motion paths, deep links/back navigation, offline read behavior,
+  local-link crawl, console check, same-origin privacy request log, and zero
+  serious/critical axe findings across both color schemes.
+- Only-`PORT` release runtime: PASS on port 18080; `/health` returned
+  `{"status":"ok","build_sha":"dev"}` and generated owner-only local data
+  and backup directories without other configuration.
+
+## Production deployment and live checks
+
+The artifact remains a single container on port 8080. The two Azure Files
+storage bindings are ReadWrite and the checked-in deployment contract fixes
+`minReplicas=1` and `maxReplicas=1`. Live deployment evidence is recorded in
+the final section below after the release revision is activated.
+
+## Needs operator action
+
+Recurring product registration is handled separately by the controller, per
+this repair work order. The code and fixture retain and prove the required
+Sociobot checkout/return contract. Clinic-owned provider credentials,
+approved message templates, consent policy, BAA/DPA review, and daily Azure
+Files snapshot retention remain operational responsibilities.
+
+---
+
 # Independent verification 4 handoff — FAIL
 
 Date: 2026-08-29 UTC
