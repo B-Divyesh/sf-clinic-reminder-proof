@@ -443,6 +443,14 @@ test('public routes reflow at 390px with 200% text and resolution retains keyboa
     if (path === '/demo') await expect(page.getByRole('heading', { level: 1 })).toHaveText('Today’s sample reminders');
     await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), path).toBe(true);
+    if (path === '/demo') {
+      const row = page.locator('.ledger-list > li').first();
+      const outcome = await row.locator('.row-outcome').boundingBox();
+      const evidenceLink = await row.getByRole('link').boundingBox();
+      expect(outcome).not.toBeNull();
+      expect(evidenceLink).not.toBeNull();
+      expect(evidenceLink!.y).toBeGreaterThanOrEqual(outcome!.y + outcome!.height);
+    }
     await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
   }
   await openDemo(page);
