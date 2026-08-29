@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { validateTopology } from './containerapp-topology.mjs';
+import { assertImageMatchesBuildSha, fetchPublicBuildIdentity, normalizeBuildSha } from './deployment-identity.mjs';
 
 const resourceGroup = process.env.REMINDER_PROOF_RESOURCE_GROUP ?? 'sociobot';
 const appName = process.env.REMINDER_PROOF_APP_NAME ?? 'sf-clinic-reminder-proof';
@@ -19,6 +20,9 @@ function azure(args) {
 function requireEqual(actual, expected, description) {
   if (actual !== expected) fail(`${description}; expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 }
+
+if (!expectedBuildSha) fail('set EXPECTED_BUILD_SHA to the full immutable source commit before verifying production');
+const expected = normalizeBuildSha(expectedBuildSha, 'EXPECTED_BUILD_SHA');
 
 const app = JSON.parse(azure(['containerapp', 'show', '--resource-group', resourceGroup, '--name', appName, '--output', 'json']));
 const template = app.properties?.template;
@@ -55,15 +59,12 @@ requireEqual(serving[0]?.properties?.trafficWeight, 100, 'serving revision traff
 requireEqual(serving[0]?.properties?.replicas, 1, 'serving replica count');
 validateTopology({ properties: { template: serving[0]?.properties?.template } });
 
-const health = await fetch(`${liveUrl}/health`);
-if (!health.ok) fail(`live health returned ${health.status}`);
-const healthBody = await health.json();
-if (expectedBuildSha && healthBody.build_sha !== expectedBuildSha) {
-  fail(`live build identity; expected ${expectedBuildSha}, got ${healthBody.build_sha}`);
-}
 const image = serving[0]?.properties?.template?.containers?.find((container) => container.name === 'app')?.image;
-if (expectedBuildSha && !image?.endsWith(`:${expectedBuildSha}`)) {
-  fail(`live image identity; expected a tag ending in ${expectedBuildSha}, got ${image ?? 'none'}`);
+try {
+  assertImageMatchesBuildSha(image, expected);
+  await fetchPublicBuildIdentity(liveUrl, expected);
+} catch (error) {
+  fail(error.message);
 }
 
 const randomOctet = () => Math.floor(Math.random() * 254) + 1;
@@ -87,7 +88,7 @@ console.log(JSON.stringify({
   revision: serving[0].name,
   image,
   replicas: serving[0].properties.replicas,
-  buildSha: healthBody.build_sha,
+  buildSha: expected,
   rateStatuses,
   retryAfter
 }, null, 2));

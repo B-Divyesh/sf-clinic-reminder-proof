@@ -37,7 +37,7 @@ The API requires no configuration and uses `PORT` (default `8080`). The single-r
 
 The production container pins the app to one replica so SQLite and demo-creation limits have one state owner. The container mounts separate durable and backup shares at `/durable` and `/backups`. The application runs without root privileges. Recovery steps and the restore regression are documented in [`.factory/operations.md`](.factory/operations.md). Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Sociobot Entra SPA before sign-in is opened to clinics.
 
-The production image refuses to start when either required share is missing. Use `npm run deploy:container -- --image <registry/image:tag>` for every Container Apps image rollout; it reapplies the checked-in mounts and one-replica boundary. The command waits until that exact healthy revision has all traffic. After deployment, run `npm run verify:deployment` with Azure access to check the active revision, mounts, replica count, and six-request rate limit.
+The production image refuses to start when either required share is missing. Use `npm run deploy:container -- --image <registry/image:full-commit>` for every Container Apps image rollout; it reapplies the checked-in mounts and one-replica boundary. The command rejects short and mutable tags. It waits until that exact healthy revision has all traffic and serves its health and footer build identity. After deployment, run `EXPECTED_BUILD_SHA=<full-commit> npm run verify:deployment` with Azure access to check the active revision, mounts, replica count, public build identity, and six-request rate limit.
 
 ## Clinic integration contract
 

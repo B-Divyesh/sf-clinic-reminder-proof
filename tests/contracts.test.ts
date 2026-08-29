@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import { effectiveConsent, foldReminderOutcome, stateCopy } from '../apps/web/src/lib/reminder';
 import { buildTopologyPatch, inspectRollout } from '../scripts/containerapp-topology.mjs';
+import { assertPublicBuildIdentity, buildShaFromImage } from '../scripts/deployment-identity.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
@@ -234,6 +235,33 @@ describe('planning scaffold contracts', () => {
     revisions[0].properties.trafficWeight = 100;
     revisions[1].properties.trafficWeight = 0;
     expect(inspectRollout(app, revisions, image).trafficConverged).toBe(true);
+  });
+
+  test('@regression:qa14-01 rollout rejects the verifier short-tag image before it can replace durable topology', () => {
+    expect(() => buildShaFromImage('sociobotregistry.azurecr.io/sf-clinic-reminder-proof:e16e61c4c300'))
+      .toThrow('container image tag must be a full 40-character Git commit SHA');
+    expect(buildShaFromImage('sociobotregistry.azurecr.io/sf-clinic-reminder-proof:e16e61c4c300fe88b9b2705e890127566f89ca28'))
+      .toBe('e16e61c4c300fe88b9b2705e890127566f89ca28');
+  });
+
+  test('@regression:qa14-02 public health and footer must identify the exact traffic revision', () => {
+    const candidate = 'e16e61c4c300fe88b9b2705e890127566f89ca28';
+    const prior = 'c2b1aced3ed7e5585d9db4eb73ffff495d1874e0';
+
+    expect(() => assertPublicBuildIdentity({
+      healthBody: { build_sha: prior },
+      landingHtml: '<small>Build c2b1ace</small>'
+    }, candidate)).toThrow(`live health build identity; expected ${candidate}, got ${prior}`);
+
+    expect(() => assertPublicBuildIdentity({
+      healthBody: { build_sha: candidate },
+      landingHtml: '<small>Build c2b1ace</small>'
+    }, candidate)).toThrow('live landing footer build identity; expected Build e16e61c');
+
+    expect(assertPublicBuildIdentity({
+      healthBody: { build_sha: candidate },
+      landingHtml: '<small>Build e16e61c</small>'
+    }, candidate)).toBe(candidate);
   });
 
   test('the container build context excludes Git metadata', async () => {

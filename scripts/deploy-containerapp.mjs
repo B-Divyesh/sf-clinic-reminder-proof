@@ -1,9 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { buildTopologyPatch, inspectRollout, validateTopology } from './containerapp-topology.mjs';
+import { buildShaFromImage, fetchPublicBuildIdentity } from './deployment-identity.mjs';
 
 const resourceGroup = process.env.REMINDER_PROOF_RESOURCE_GROUP ?? 'sociobot';
 const appName = process.env.REMINDER_PROOF_APP_NAME ?? 'sf-clinic-reminder-proof';
+const liveUrl = (process.env.REMINDER_PROOF_LIVE_URL ?? 'https://clinic-reminder-proof.sociobot.in').replace(/\/$/, '');
 const apiVersion = '2025-07-01';
 const deploymentTimeoutMs = Number.parseInt(process.env.DEPLOYMENT_TIMEOUT_MS ?? '600000', 10);
 const args = process.argv.slice(2);
@@ -28,6 +30,7 @@ function wait(milliseconds) {
 if (!image || image.startsWith('--')) {
   fail('pass --image <registry/image:tag> or set REMINDER_PROOF_IMAGE');
 }
+const expectedBuildSha = buildShaFromImage(image);
 
 const topology = JSON.parse(await readFile(new URL('../deployment/containerapp.json', import.meta.url), 'utf8'));
 const currentApp = JSON.parse(
@@ -52,6 +55,7 @@ azure(['rest', '--method', 'PATCH', '--uri', endpoint, '--body', JSON.stringify(
 
 const deadline = Date.now() + deploymentTimeoutMs;
 let servingRevision;
+let lastPublicIdentityError;
 while (Date.now() < deadline) {
   const app = JSON.parse(
     azure(['containerapp', 'show', '--resource-group', resourceGroup, '--name', appName, '--output', 'json'])
@@ -64,15 +68,21 @@ while (Date.now() < deadline) {
     validateTopology({ properties: { template: rollout.readyRevision.properties?.template } });
     if (rollout.trafficConverged && rollout.readyRevision.properties?.replicas === 1) {
       validateTopology({ properties: { template: app.properties?.template } });
-      servingRevision = rollout.readyRevision;
-      break;
+      try {
+        await fetchPublicBuildIdentity(liveUrl, expectedBuildSha);
+        servingRevision = rollout.readyRevision;
+        break;
+      } catch (error) {
+        lastPublicIdentityError = error;
+      }
     }
   }
   await wait(10_000);
 }
 
 if (!servingRevision) {
-  fail('the target revision did not become healthy and the sole 100% traffic target before the deployment timeout');
+  const publicIdentity = lastPublicIdentityError ? ` Public identity check: ${lastPublicIdentityError.message}` : '';
+  fail(`the target revision did not become healthy, receive sole 100% traffic, and serve its exact build before the deployment timeout.${publicIdentity}`);
 }
 
 console.log(JSON.stringify({

@@ -1,3 +1,5 @@
+import { buildShaFromImage } from './deployment-identity.mjs';
+
 /**
  * The durable-storage topology is deliberately kept separate from image
  * selection. Image-only Container Apps updates replace the template and can
@@ -46,7 +48,9 @@ export function validateTopology(document) {
  * image rollout deterministic even if the prior template was incomplete.
  */
 export function buildTopologyPatch(currentApp, topologyDocument, image) {
-  if (!image || typeof image !== 'string') throw new Error('a container image is required');
+  // A short or mutable tag prevents the runtime build identity from being
+  // proven. Every deploy must name the exact source commit it was built from.
+  buildShaFromImage(image);
 
   const topology = validateTopology(topologyDocument);
   const currentTemplate = currentApp?.properties?.template;

@@ -137,6 +137,11 @@ Headings, inventory statements, and every prose sentence are included. Commands 
 | 7 | The factory deploys the container to `https://clinic-reminder-proof.sociobot.in`. | Pass |
 | 14 | Do not put messaging-provider keys, clinic data, payments, or Entra configuration in this repository. | Pass |
 | 19 | After pushing an image to the factory registry, deploy it with the checked-in topology rather than an image-only update. | Pass; `single-replica-durable-topology` |
+| 22 | The command rejects short and mutable tags. | Pass; `single-replica-durable-topology`, `@regression:qa14-01` |
+| 21 | It waits until that exact healthy revision has all traffic and serves its health and footer build identity. | Pass; `single-replica-durable-topology`, `@regression:qa14-02` |
+| 18 | Build the image with its full 40-character source commit as the tag, then use `npm run deploy:container -- --image <registry/image:full-commit>` for every Container Apps rollout. | Pass; `single-replica-durable-topology`, `@regression:qa14-01` |
+| 17 | The command rejects short and mutable tags. | Pass; `single-replica-durable-topology`, `@regression:qa14-01` |
+| 17 | After each rollout, run `EXPECTED_BUILD_SHA=<full-commit> npm run verify:deployment` from this repository with Azure access. | Pass; `single-replica-durable-topology`, `@regression:qa14-02` |
 | 3 | Privacy and terms | Pass; heading |
 | 9 | The public pages are available at `/privacy` and `/terms`. | Pass |
 | 5 | The demo uses fictional aliases. | Pass |
