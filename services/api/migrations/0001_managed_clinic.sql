@@ -1,4 +1,8 @@
-PRAGMA journal_mode=WAL;
+-- Azure Files uses SMB. WAL needs shared-memory sidecars and is not safe on
+-- that network filesystem; this deployment intentionally has one replica, so
+-- SQLite's rollback journal gives durable single-writer semantics instead.
+PRAGMA journal_mode=DELETE;
+PRAGMA busy_timeout=5000;
 PRAGMA foreign_keys=ON;
 
 CREATE TABLE IF NOT EXISTS clinic_workspaces (
