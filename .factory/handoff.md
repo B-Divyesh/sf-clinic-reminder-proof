@@ -1,4 +1,37 @@
-# Reminder Proof verification 3 handoff
+# Reminder Proof repair 3 handoff
+
+Status: **not release-ready — two external acceptance items remain**
+
+Date: 2026-08-29 UTC
+
+Repair commits: `20593be`, `66af0ea`, `51226a9`, `8ac5e5b`
+
+Deployed build: `8ac5e5b635d353d58ca19bddb9176dc04394400c`
+
+## Repaired and verified
+
+- The demo-creation allowance now keys on the first ingress client hop, not a proxy hop. Production is pinned to one replica. A live six-request probe returned `200, 200, 200, 200, 200, 429`; the sixth response included `Retry-After: 3599`.
+- Generated local clinic directories, data keys, and SQLite files are owner-only (`0700`, `0600`, `0600`), with a regression test. Azure Files rejects POSIX chmod; the code records that managed-share limitation rather than crashing.
+- The broad managed-workflow claim is split into auth/storage, provider fallback/receipt, and billing-return claims. A fixture HTTP provider rejects SMS, accepts email, persists both outcomes, accepts a receipt, and a fixture Sociobot checkout/verify cycle activates the subscription.
+- SQLite now selects a rollback journal rather than WAL for SMB compatibility. A single-replica Azure Files share and environment storage binding were provisioned, but its mount cannot be prepared by the non-root runtime image; the production revision deliberately remains unmounted and starts normally.
+- Clean local checks completed: `npm ci`, `npm run check`, `npm test`, `npm run build`, all exact claim commands, and `cargo test --manifest-path services/api/Cargo.toml`.
+- Live `/health` returned the deployed SHA above. The deployed Container App has `minReplicas=1` and `maxReplicas=1`.
+
+## Still blocking release
+
+1. Sociobot’s production catalog does not contain `clinic-reminder-proof`: its checkout remains HTTP 404. The live Dodo credential available to this worker authenticates only against test mode, and the factory catalog schema currently holds one-time product records; no recurring product could be honestly registered from this work order. The application now fails its same-origin checkout route explicitly when the catalog endpoint is unavailable rather than handing a clinic a broken URL.
+2. Durable managed clinic storage and backups are not release-ready. The Azure Files share is provisioned, but it cannot be initialized by the non-root container and SQLite cannot be accepted there until a compatible volume/database path is supplied. The app must not accept real clinic records while this remains unresolved.
+3. The live general `/metrics` burst still needs an ingress-safe test with the actual factory forwarding chain; a 60-request synthetic header burst was all 200 despite the in-process governor. Demo creation, which is the public write boundary, is proven live as above.
+
+## Next operator action
+
+- Register a recurring $79/month `clinic-reminder-proof` product in the Sociobot production and pilot catalogs, then run a real pilot checkout/return/verify cycle.
+- Provide a non-root-writable durable data service (or a compatible managed database) and configure snapshot/restore automation. See `.factory/operations.md`.
+- Verify the general rate limiter through the ingress’s trusted client-IP header, then enforce it at ingress or a shared limiter before increasing replicas.
+
+---
+
+# Previous independent verification 3 handoff
 
 Status: **FAIL — do not release**
 
