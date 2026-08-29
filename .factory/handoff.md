@@ -1,3 +1,77 @@
+# Repair 5 handoff — release blockers repaired
+
+Date: 2026-08-29 UTC
+Work order: `clinic-reminder-proof-repair-5`
+Verifier base commit: `5d91cddf7ada7e311def8cb75daad2abb9a91aae`
+Rejected candidate: `454c4211fe1ffe5ecc9116b602eaae5e3d080002`
+Application repair commit and deployed build: `2dd0148db563caf4035cd94667f14c795a9cd00d`
+
+## What changed
+
+- Restored the intended production topology rather than changing its contract:
+  `sf-clinic-reminder-proof--repair5` runs one active replica, receives 100%
+  of traffic, and mounts the pre-provisioned ReadWrite Azure Files shares at
+  `/durable` and `/backups`. The stale zero-traffic three-replica revision was
+  deactivated. This restores one owner for SQLite and in-process limit state.
+- Increased Playwright's cold server-start allowance from 120 to 600 seconds.
+  The exact `@claim:demo-isolation` command now passes after `cargo clean`, so
+  it no longer depends on a previous test warming the Rust build.
+- Fixed 390 px 200% text reflow on Landing, Demo, Privacy, and Terms. Mobile
+  headings and flex children now shrink and wrap at their actual available
+  width. Resolving the sample exception now moves focus to the replacement
+  **Undo resolution** action.
+- Removed the unprovable phrase “published messaging charges.” Public copy and
+  the claim now state the verified $79/location/month subscription; provider
+  fees are described plainly as separate.
+- Added two claim entries with exact regressions: durable matching-key backup,
+  startup restore and 30-day daily retention; and the checked-in one-replica,
+  two-Azure-Files deployment contract. The retention regression revealed and
+  corrected an off-by-one prune bug: a recovery point exactly 30 days old is
+  now retained.
+- Added concurrency regression coverage for 18 simultaneous demo creations
+  (exactly 5 allowed, 13 rejected with `Retry-After`) and a protected billing
+  burst (some 401s plus rate-limited 429s carrying `Retry-After`). It passes
+  locally and against the deployed revision.
+
+## Verification evidence
+
+- Clean install: `npm ci` — PASS, 87 packages, 0 vulnerabilities.
+- Cold claim reproduction: `cargo clean && npm run test:e2e -- --grep
+  @claim:demo-isolation` — PASS from a cold Rust build under the new 600 s
+  allowance.
+- Full suite: `npm test` — PASS: 6 Vitest contracts, 24 Rust tests, and 27
+  Chromium tests (including axe, privacy request log, keyboard, offline read,
+  response policy, deep links, desktop, normal 390 px, 200% text, dark mode,
+  and reduced motion checks).
+- `npm run check` — PASS: Svelte diagnostics 0 errors/warnings, rustfmt, and
+  clippy with warnings denied.
+- `npm run build` — PASS: `dist/` and `target/release/reminder-proof-api`.
+  Public entry JS: 80.13 KB raw / 27.92 KB gzip; CSS: 24.79 KB raw / 5.38 KB
+  gzip.
+- Only-`PORT` release runtime — PASS on port 18081: `/health` returned
+  `{"status":"ok","build_sha":"dev"}` and generated the local protected
+  store. The configured-data-dir run verified directory mode 0700 and key and
+  database modes 0600.
+- ACR production build — PASS, run `cht9`; its source archive excluded `.git`
+  and uploaded 160.397 KiB. Image:
+  `sociobotregistry.azurecr.io/sf-clinic-reminder-proof:2dd0148db563`.
+- Live deployment — PASS: `/health` returns the exact deployed SHA above.
+  Azure control plane reports `minReplicas=1`, `maxReplicas=1`, one healthy
+  active replica, 100% traffic, both named Azure Files volumes, and both
+  `/durable` and `/backups` mounts.
+- Live browser regressions — PASS against
+  `https://clinic-reminder-proof.sociobot.in`: public link/console crawl,
+  390 px/200% reflow + keyboard-focus repair, sequential rate claim, and the
+  concurrent demo/protected-route limiter regression.
+
+## Remaining operational responsibilities
+
+Clinic operators must still provide approved providers/templates and consent,
+and the factory must retain the separate Azure Files shares according to its
+backup policy. The product does not accept clinical notes or replace the EMR.
+
+---
+
 # Independent verification 5 handoff — FAIL
 
 Date: 2026-08-29 UTC

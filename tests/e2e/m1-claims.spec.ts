@@ -191,6 +191,31 @@ test('@claim:rate-limit-policy Demo creation is limited by the ingress client ad
   expect(await responses[5].json()).toMatchObject({ code: 'rate_limited' });
 });
 
+test('one deployed rate-limit owner rejects concurrent demo creates after five and protects clinic routes', async ({ page }) => {
+  const stableClient = `198.18.${demoClient}.41`;
+  const creates = await Promise.all(Array.from({ length: 18 }, (_, request) =>
+    page.request.post('/api/v1/demo/workspaces', {
+      headers: { 'x-forwarded-for': `${stableClient}, 203.0.113.${request}` }
+    })
+  ));
+  expect(creates.filter((response) => response.status() === 200)).toHaveLength(5);
+  const rejectedCreates = creates.filter((response) => response.status() === 429);
+  expect(rejectedCreates).toHaveLength(13);
+  expect(rejectedCreates.every((response) => Number(response.headers()['retry-after']) > 0)).toBe(true);
+
+  const protectedClient = `198.18.${demoClient}.42`;
+  const billing = await Promise.all(Array.from({ length: 60 }, (_, request) =>
+    page.request.post('/api/v1/billing/checkout', {
+      headers: { 'x-forwarded-for': `${protectedClient}, 203.0.113.${request}` },
+      data: { tier: 'clinic' }
+    })
+  ));
+  const rejectedBilling = billing.filter((response) => response.status() === 429);
+  expect(rejectedBilling.length).toBeGreaterThan(0);
+  expect(rejectedBilling.every((response) => Number(response.headers()['retry-after']) > 0)).toBe(true);
+  expect(billing.filter((response) => response.status() === 401).length).toBeGreaterThan(0);
+});
+
 test('@claim:security-headers Responses use the documented browser security and cache headers.', async ({ page }) => {
   const pageResponse = await page.request.get('/');
   expect(pageResponse.headers()['content-security-policy']).toContain("default-src 'self'");
