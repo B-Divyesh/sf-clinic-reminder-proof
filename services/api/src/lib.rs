@@ -59,7 +59,7 @@ impl KeyExtractor for TrustedProxyIpExtractor {
             .headers()
             .get("x-forwarded-for")
             .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.split(',').next_back())
+            .and_then(|value| value.split(',').next())
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or("local")
@@ -368,7 +368,7 @@ mod tests {
                 .uri("/api/v1/demo/state")
                 .header(
                     "x-forwarded-for",
-                    format!("198.51.100.{attempt}, 203.0.113.9"),
+                    format!("198.51.100.9, 203.0.113.{attempt}"),
                 )
                 .body(Body::empty())
                 .unwrap();
@@ -383,7 +383,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn workspace_allowance_uses_trusted_last_hop_and_has_retry_after() {
+    async fn workspace_allowance_uses_client_first_hop_and_has_retry_after() {
         let application = test_app();
         for attempt in 0..6 {
             let response = application
@@ -394,7 +394,7 @@ mod tests {
                         .uri("/api/v1/demo/workspaces")
                         .header(
                             "x-forwarded-for",
-                            format!("198.51.100.{attempt}, 203.0.113.18"),
+                            format!("198.51.100.18, 203.0.113.{attempt}"),
                         )
                         .body(Body::empty())
                         .unwrap(),

@@ -1,6 +1,27 @@
 {
   "properties": {
     "template": {
+      "initContainers": [
+        {
+          "name": "prepare-data-volume",
+          "image": "sociobotregistry.azurecr.io/sf-clinic-reminder-proof:current",
+          "command": [
+            "/bin/sh",
+            "-c",
+            "mkdir -p /data && chmod 0777 /data"
+          ],
+          "resources": {
+            "cpu": 0.25,
+            "memory": "0.5Gi"
+          },
+          "volumeMounts": [
+            {
+              "volumeName": "clinic-data",
+              "mountPath": "/data"
+            }
+          ]
+        }
+      ],
       "containers": [
         {
           "name": "app",

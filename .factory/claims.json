@@ -95,7 +95,7 @@
     "claim": "Demo creation is limited by the ingress client address and returns Retry-After.",
     "where": "demo contract, backend policy",
     "test": "npm run test:e2e -- --grep @claim:rate-limit-policy",
-    "sandbox": "fresh API client; vary an untrusted first X-Forwarded-For hop while keeping the trusted final hop stable, then assert request six returns 429 JSON with Retry-After"
+    "sandbox": "fresh API client; keep the client first X-Forwarded-For hop stable while varying later proxy hops, then assert request six returns 429 JSON with Retry-After"
   },
   {
     "id": "security-headers",
