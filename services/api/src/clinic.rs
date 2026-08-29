@@ -106,6 +106,7 @@ pub struct ClinicReminder {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReminderChannel {
     pub channel: String,
     pub destination: String,
@@ -153,6 +154,7 @@ pub struct AuditEvent {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OnboardInput {
     clinic_name: String,
     location_name: String,
@@ -160,6 +162,7 @@ pub struct OnboardInput {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderInput {
     channel: String,
     kind: String,
@@ -171,18 +174,21 @@ pub struct ProviderInput {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConnectorInput {
     kind: String,
     webhook_secret: String,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct IntakeInput {
     connector_id: String,
     appointments: Vec<AppointmentInput>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AppointmentInput {
     source_id: String,
     patient_alias: String,
@@ -198,6 +204,7 @@ pub struct DispatchInput {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReceiptInput {
     provider_reference: String,
     provider_event_id: String,
@@ -206,18 +213,27 @@ pub struct ReceiptInput {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AssignInput {
     owner: String,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ResolveInput {
     resolution: String,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BillingQuery {
     tier: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BillingReturnInput {
+    license: String,
 }
 
 #[derive(Serialize)]
@@ -261,7 +277,7 @@ struct SubscriptionPublic {
 }
 
 impl From<ClinicWorkspace> for WorkspaceResponse {
-    fn from(value: ClinicWorkspace) -> Self {
+    fn from(mut value: ClinicWorkspace) -> Self {
         let providers = value
             .provider_configs
             .iter()
@@ -273,6 +289,14 @@ impl From<ClinicWorkspace> for WorkspaceResponse {
                 approved_template_id: item.approved_template_id.clone(),
             })
             .collect();
+        // Contact destinations are dispatch inputs, not browser or export
+        // output. Keep the channel and consent proof while ensuring an
+        // authorized response cannot become a second plaintext contact list.
+        for reminder in &mut value.reminders {
+            for channel in &mut reminder.channels {
+                channel.destination = "[encrypted contact]".to_owned();
+            }
+        }
         Self {
             organization_id: value.organization_id,
             clinic_name: value.clinic_name,
@@ -1293,6 +1317,7 @@ async fn send_provider(
                 channel.channel
             ))
             .header("Idempotency-Key", idempotency)
+            .bearer_auth(&secret)
             .json(&serde_json::json!({
                 "from": provider.from,
                 "to": channel.destination,
@@ -2011,21 +2036,18 @@ pub async fn billing_checkout(
 pub async fn billing_return(
     State(state): State<ClinicState>,
     headers: HeaderMap,
-    Json(input): Json<serde_json::Value>,
+    Json(input): Json<BillingReturnInput>,
 ) -> Result<Json<WorkspaceResponse>, Response> {
     let identity = identity(&state, &headers).await?;
-    let token = input
-        .get("license")
-        .and_then(|value| value.as_str())
-        .filter(|value| value.len() >= 16)
-        .ok_or_else(|| {
-            ApiError::new(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "entitlement_invalid",
-                "Return a valid Sociobot entitlement.",
-            )
-            .into_response()
-        })?;
+    let token = input.license.as_str();
+    if token.len() < 16 {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "entitlement_invalid",
+            "Return a valid Sociobot entitlement.",
+        )
+        .into_response());
+    }
     let response = state
         .client
         .get(billing_product_url(&state, "verify"))
@@ -2082,6 +2104,7 @@ pub async fn billing_return(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::extract::State as AxumState;
     use axum::{routing::get, routing::post, Router};
     use http_body_util::BodyExt;
     use tokio::net::TcpListener;
@@ -2109,6 +2132,105 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         (format!("http://{address}"), task)
+    }
+
+    #[derive(Clone, Default)]
+    struct ProviderCapture(Arc<Mutex<Vec<(HeaderMap, serde_json::Value)>>>);
+
+    async fn capture_provider_request(
+        AxumState(capture): AxumState<ProviderCapture>,
+        headers: HeaderMap,
+        Json(body): Json<serde_json::Value>,
+    ) -> Json<serde_json::Value> {
+        capture.0.lock().unwrap().push((headers, body));
+        Json(serde_json::json!({"id":"fixture-message-77"}))
+    }
+
+    async fn capturing_provider_gateway() -> (String, ProviderCapture, tokio::task::JoinHandle<()>)
+    {
+        let capture = ProviderCapture::default();
+        let router = Router::new()
+            .route("/send/sms", post(capture_provider_request))
+            .route("/send/whatsapp", post(capture_provider_request))
+            .route("/send/email", post(capture_provider_request))
+            .with_state(capture.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        (format!("http://{address}"), capture, task)
+    }
+
+    fn sign_hmac_sha256(secret: &str, value: &str) -> String {
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(value.as_bytes());
+        URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
+    }
+
+    fn twilio_signature(
+        secret: &str,
+        provider_id: &str,
+        params: &BTreeMap<String, String>,
+    ) -> String {
+        let mut canonical = format!(
+            "https://clinic-reminder-proof.sociobot.in/api/v1/providers/twilio/{provider_id}/receipts"
+        );
+        for (key, value) in params {
+            canonical.push_str(key);
+            canonical.push_str(value);
+        }
+        let mut mac = <Hmac<Sha1> as Mac>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(canonical.as_bytes());
+        base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes())
+    }
+
+    fn resend_signature(secret: &str, event_id: &str, timestamp: u64, body: &str) -> String {
+        let encoded_secret = secret.strip_prefix("whsec_").unwrap_or(secret);
+        let key = URL_SAFE_NO_PAD.decode(encoded_secret).unwrap();
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&key).unwrap();
+        mac.update(format!("{event_id}.{timestamp}.{body}").as_bytes());
+        format!(
+            "v1,{}",
+            base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes())
+        )
+    }
+
+    fn provider_with_reference(
+        state: &ClinicState,
+        id: &str,
+        channel: &str,
+        kind: &str,
+        credential: &str,
+        webhook_secret: &str,
+        reference: &str,
+    ) -> ClinicWorkspace {
+        let mut reminder = appointment(&[(channel, "allowed")]);
+        reminder.status = "provider-accepted".to_owned();
+        reminder.timeline.push(ClinicEvent {
+            at: now(),
+            kind: "provider-accepted".to_owned(),
+            channel: Some(channel.to_owned()),
+            outcome: "Provider accepted the approved reminder".to_owned(),
+            provider_reference: Some(reference.to_owned()),
+            provider_code: Some("fixture-dispatch".to_owned()),
+        });
+        ClinicWorkspace {
+            organization_id: format!("{id}-org"),
+            clinic_name: "Fixture Dental".to_owned(),
+            location_name: "Main".to_owned(),
+            timezone: "UTC".to_owned(),
+            provider_configs: vec![StoredProvider {
+                id: id.to_owned(),
+                channel: channel.to_owned(),
+                kind: kind.to_owned(),
+                account_id: "fixture-account".to_owned(),
+                encrypted_secret: state.store.encrypt(credential).unwrap(),
+                from: "+15550000001".to_owned(),
+                approved_template_id: "HX-approved-template".to_owned(),
+                encrypted_webhook_secret: state.store.encrypt(webhook_secret).unwrap(),
+            }],
+            reminders: vec![reminder],
+            ..Default::default()
+        }
     }
 
     fn appointment(consents: &[(&str, &str)]) -> ClinicReminder {
@@ -2173,6 +2295,345 @@ mod tests {
         let fallback = untried_eligible_channels(&reminder);
         assert_eq!(fallback.len(), 1);
         assert_eq!(fallback[0].channel, "email");
+    }
+
+    #[tokio::test]
+    async fn managed_claim_signed_calendar_intake_is_authenticated_and_idempotent() {
+        let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
+        let state = ClinicState::for_tests(path.clone()).unwrap();
+        let connector_id = "fixture-calendar-connector";
+        let secret = "fixture-calendar-signing-secret";
+        state
+            .store
+            .save(
+                "fixture-owner",
+                &ClinicWorkspace {
+                    organization_id: "fixture-calendar-org".to_owned(),
+                    clinic_name: "Fixture Dental".to_owned(),
+                    connector: Some(ConnectorPublic {
+                        id: connector_id.to_owned(),
+                        kind: "signed-calendar-webhook".to_owned(),
+                        connected_at: now(),
+                        last_received_at: None,
+                    }),
+                    encrypted_connector_secret: Some(state.store.encrypt(secret).unwrap()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let app = crate::app_with_clinic_state("fixture", "../../dist", state.clone());
+        let timestamp = now();
+        let body = serde_json::json!({
+            "connector_id": connector_id,
+            "appointments": [{
+                "source_id": "source-idempotent-1",
+                "patient_alias": "Patient Z",
+                "first_name": "Z",
+                "appointment_time": "2026-09-04T10:30:00Z",
+                "channels": [{
+                    "channel": "email",
+                    "destination": "patient-z@example.test",
+                    "consent": "allowed",
+                    "consent_source": "signed source",
+                    "consent_captured_at": "2026-08-29T09:00:00Z"
+                }]
+            }]
+        });
+        let signature = sign_hmac_sha256(secret, &format!("{timestamp}:{connector_id}:1"));
+
+        for _ in 0..2 {
+            let response = app
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .method("POST")
+                        .uri("/api/v1/connectors/intake")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .header("x-reminder-timestamp", timestamp.to_string())
+                        .header("x-reminder-signature", &signature)
+                        .body(axum::body::Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        let stored = state.store.get("fixture-owner").unwrap().unwrap();
+        assert_eq!(stored.reminders.len(), 1);
+        assert_eq!(stored.reminders[0].source_id, "source-idempotent-1");
+
+        let mut altered = body;
+        altered["appointments"][0]["patient_alias"] = serde_json::json!("Altered patient");
+        let rejected = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/connectors/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-reminder-timestamp", timestamp.to_string())
+                    .header("x-reminder-signature", "invalid-signature")
+                    .body(axum::body::Body::from(altered.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            state.store.get("fixture-owner").unwrap().unwrap().reminders[0].patient_alias,
+            "Patient Z"
+        );
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[tokio::test]
+    async fn managed_claim_approved_whatsapp_uses_template_and_records_receipt() {
+        let (gateway, capture, gateway_task) = capturing_provider_gateway().await;
+        let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
+        let state =
+            ClinicState::for_tests_with_fixtures(path.clone(), gateway.clone(), gateway).unwrap();
+        let provider_id = "whatsapp-provider";
+        let credential = "twilio-whatsapp-token";
+        let mut workspace = provider_with_reference(
+            &state,
+            provider_id,
+            "whatsapp",
+            "twilio",
+            credential,
+            "unused-webhook-secret",
+            "unused-reference",
+        );
+        workspace.reminders[0].status = "scheduled".to_owned();
+        workspace.reminders[0].timeline.clear();
+        workspace.subscription = Subscription {
+            tier: Some("clinic".to_owned()),
+            status: Some("active".to_owned()),
+            checked_at: Some(now()),
+            encrypted_entitlement: Some(state.store.encrypt("fixture-license-token").unwrap()),
+        };
+        state.store.save("fixture-owner", &workspace).unwrap();
+        let app = crate::app_with_clinic_state("fixture", "../../dist", state.clone());
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/clinic/reminders/dispatch")
+                    .header(header::AUTHORIZATION, "Bearer test:fixture-owner")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("idempotency-key", "whatsapp-template-77")
+                    .body(axum::body::Body::from(r#"{"reminder_id":"r1"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        {
+            let requests = capture.0.lock().unwrap();
+            assert_eq!(requests.len(), 1);
+            assert_eq!(
+                requests[0].0.get(header::AUTHORIZATION).unwrap(),
+                "Bearer twilio-whatsapp-token"
+            );
+            assert_eq!(
+                requests[0].1,
+                serde_json::json!({
+                    "from": "+15550000001",
+                    "to": "+447700900001",
+                    "template": "HX-approved-template",
+                    "first_name": "A",
+                    "clinic": "Fixture Dental",
+                    "appointment_time": "2026-09-01 09:00"
+                })
+            );
+            assert!(requests[0].1.get("body").is_none());
+        }
+
+        let params = BTreeMap::from([
+            ("MessageSid".to_owned(), "fixture-message-77".to_owned()),
+            ("MessageStatus".to_owned(), "delivered".to_owned()),
+        ]);
+        let body = "MessageSid=fixture-message-77&MessageStatus=delivered".to_owned();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-twilio-signature",
+            HeaderValue::from_str(&twilio_signature(credential, provider_id, &params)).unwrap(),
+        );
+        assert_eq!(
+            twilio_receipt(
+                State(state.clone()),
+                AxumPath(provider_id.to_owned()),
+                headers,
+                body,
+            )
+            .await
+            .unwrap(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            state.store.get("fixture-owner").unwrap().unwrap().reminders[0].status,
+            "delivered"
+        );
+        gateway_task.abort();
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[tokio::test]
+    async fn managed_claim_twilio_receipt_verification_is_replay_safe() {
+        let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
+        let state = ClinicState::for_tests(path.clone()).unwrap();
+        let provider_id = "twilio-receipt-provider";
+        let secret = "twilio-auth-token";
+        state
+            .store
+            .save(
+                "fixture-owner",
+                &provider_with_reference(
+                    &state,
+                    provider_id,
+                    "sms",
+                    "twilio",
+                    secret,
+                    "unused-webhook",
+                    "SM-fixture-123",
+                ),
+            )
+            .unwrap();
+        let params = BTreeMap::from([
+            ("MessageSid".to_owned(), "SM-fixture-123".to_owned()),
+            ("MessageStatus".to_owned(), "delivered".to_owned()),
+        ]);
+        let body = "MessageSid=SM-fixture-123&MessageStatus=delivered".to_owned();
+        let signature = twilio_signature(secret, provider_id, &params);
+        for _ in 0..2 {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                "x-twilio-signature",
+                HeaderValue::from_str(&signature).unwrap(),
+            );
+            assert_eq!(
+                twilio_receipt(
+                    State(state.clone()),
+                    AxumPath(provider_id.to_owned()),
+                    headers,
+                    body.clone(),
+                )
+                .await
+                .unwrap(),
+                StatusCode::NO_CONTENT
+            );
+        }
+        let before_invalid = state.store.get("fixture-owner").unwrap().unwrap();
+        assert_eq!(
+            before_invalid.reminders[0]
+                .timeline
+                .iter()
+                .filter(|event| event.kind == "provider-receipt")
+                .count(),
+            1
+        );
+        let mut bad_headers = HeaderMap::new();
+        bad_headers.insert(
+            "x-twilio-signature",
+            HeaderValue::from_static("altered-signature"),
+        );
+        let rejected = twilio_receipt(
+            State(state.clone()),
+            AxumPath(provider_id.to_owned()),
+            bad_headers,
+            body,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            state.store.get("fixture-owner").unwrap().unwrap().reminders[0]
+                .timeline
+                .iter()
+                .filter(|event| event.kind == "provider-receipt")
+                .count(),
+            1
+        );
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[tokio::test]
+    async fn managed_claim_resend_receipt_verification_is_replay_safe() {
+        let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
+        let state = ClinicState::for_tests(path.clone()).unwrap();
+        let provider_id = "resend-receipt-provider";
+        let key = [9_u8; 32];
+        let secret = format!("whsec_{}", URL_SAFE_NO_PAD.encode(key));
+        state
+            .store
+            .save(
+                "fixture-owner",
+                &provider_with_reference(
+                    &state,
+                    provider_id,
+                    "email",
+                    "resend",
+                    "resend-api-token",
+                    &secret,
+                    "email-fixture-123",
+                ),
+            )
+            .unwrap();
+        let event_id = "msg_fixture_123";
+        let timestamp = now();
+        let body = r#"{"type":"email.delivered","data":{"email_id":"email-fixture-123"}}"#;
+        let signature = resend_signature(&secret, event_id, timestamp, body);
+        for _ in 0..2 {
+            let mut headers = HeaderMap::new();
+            headers.insert("svix-id", HeaderValue::from_static("msg_fixture_123"));
+            headers.insert(
+                "svix-timestamp",
+                HeaderValue::from_str(&timestamp.to_string()).unwrap(),
+            );
+            headers.insert("svix-signature", HeaderValue::from_str(&signature).unwrap());
+            assert_eq!(
+                resend_receipt(
+                    State(state.clone()),
+                    AxumPath(provider_id.to_owned()),
+                    headers,
+                    body.to_owned(),
+                )
+                .await
+                .unwrap(),
+                StatusCode::NO_CONTENT
+            );
+        }
+        assert_eq!(
+            state.store.get("fixture-owner").unwrap().unwrap().reminders[0]
+                .timeline
+                .iter()
+                .filter(|event| event.kind == "provider-receipt")
+                .count(),
+            1
+        );
+        let mut bad_headers = HeaderMap::new();
+        bad_headers.insert("svix-id", HeaderValue::from_static("msg_fixture_123"));
+        bad_headers.insert(
+            "svix-timestamp",
+            HeaderValue::from_str(&timestamp.to_string()).unwrap(),
+        );
+        bad_headers.insert("svix-signature", HeaderValue::from_static("v1,altered"));
+        let rejected = resend_receipt(
+            State(state.clone()),
+            AxumPath(provider_id.to_owned()),
+            bad_headers,
+            body.to_owned(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            state.store.get("fixture-owner").unwrap().unwrap().reminders[0]
+                .timeline
+                .iter()
+                .filter(|event| event.kind == "provider-receipt")
+                .count(),
+            1
+        );
+        let _ = fs::remove_dir_all(path);
     }
 
     #[test]
@@ -2353,6 +2814,187 @@ mod tests {
         let encrypted = state.store.encrypt("provider-secret").unwrap();
         assert!(!encrypted.contains("provider-secret"));
         assert_eq!(state.store.decrypt(&encrypted).unwrap(), "provider-secret");
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[tokio::test]
+    async fn managed_claim_secrets_and_destinations_are_encrypted_and_adapter_scoped() {
+        let (gateway, capture, gateway_task) = capturing_provider_gateway().await;
+        let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
+        let state =
+            ClinicState::for_tests_with_fixtures(path.clone(), gateway.clone(), gateway).unwrap();
+        let credential = "fixture-provider-credential-private";
+        let webhook_secret = "fixture-provider-webhook-private";
+        let destination = "+447700912345";
+        let mut reminder = appointment(&[("sms", "allowed")]);
+        reminder.channels[0].destination = destination.to_owned();
+        let workspace = ClinicWorkspace {
+            organization_id: "secret-scope-org".to_owned(),
+            clinic_name: "Fixture Dental".to_owned(),
+            location_name: "Main".to_owned(),
+            timezone: "UTC".to_owned(),
+            provider_configs: vec![StoredProvider {
+                id: "secret-provider".to_owned(),
+                channel: "sms".to_owned(),
+                kind: "twilio".to_owned(),
+                account_id: "fixture-account".to_owned(),
+                encrypted_secret: state.store.encrypt(credential).unwrap(),
+                from: "+15550000001".to_owned(),
+                approved_template_id: "approved-sms-template".to_owned(),
+                encrypted_webhook_secret: state.store.encrypt(webhook_secret).unwrap(),
+            }],
+            reminders: vec![reminder],
+            subscription: Subscription {
+                tier: Some("clinic".to_owned()),
+                status: Some("active".to_owned()),
+                checked_at: Some(now()),
+                encrypted_entitlement: Some(state.store.encrypt("fixture-license-token").unwrap()),
+            },
+            ..Default::default()
+        };
+        state.store.save("fixture-owner", &workspace).unwrap();
+
+        for stored_path in [
+            path.join("clinic-data.sqlite3"),
+            path.join("durable/clinic-data.latest.sqlite3"),
+        ] {
+            let bytes = fs::read(stored_path).unwrap();
+            assert!(!bytes
+                .windows(credential.len())
+                .any(|part| part == credential.as_bytes()));
+            assert!(!bytes
+                .windows(webhook_secret.len())
+                .any(|part| part == webhook_secret.as_bytes()));
+            assert!(!bytes
+                .windows(destination.len())
+                .any(|part| part == destination.as_bytes()));
+        }
+        let exported = serde_json::to_string(&WorkspaceResponse::from(workspace)).unwrap();
+        assert!(!exported.contains(credential));
+        assert!(!exported.contains(webhook_secret));
+        assert!(!exported.contains(destination));
+        assert!(exported.contains("[encrypted contact]"));
+
+        let app = crate::app_with_clinic_state("fixture", "../../dist", state);
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/clinic/reminders/dispatch")
+                    .header(header::AUTHORIZATION, "Bearer test:fixture-owner")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("idempotency-key", "secret-scope-dispatch")
+                    .body(axum::body::Body::from(r#"{"reminder_id":"r1"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let requests = capture.0.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].0.get(header::AUTHORIZATION).unwrap(),
+            "Bearer fixture-provider-credential-private"
+        );
+        assert_eq!(requests[0].1["to"], destination);
+        drop(requests);
+        gateway_task.abort();
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[tokio::test]
+    async fn managed_claim_clinical_fields_are_rejected_at_every_json_write() {
+        assert!(serde_json::from_value::<OnboardInput>(serde_json::json!({
+            "clinic_name":"Clinic", "location_name":"Main", "timezone":"UTC", "diagnosis":"x"
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<ConnectorInput>(serde_json::json!({
+            "kind":"signed-calendar-webhook", "webhook_secret":"0123456789abcdef", "clinical_note":"x"
+        })).is_err());
+        assert!(serde_json::from_value::<ProviderInput>(serde_json::json!({
+            "channel":"sms", "kind":"twilio", "account_id":"a", "secret":"s", "from":"+15550000001",
+            "approved_template_id":"t", "webhook_secret":"w", "treatment":"x"
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<DispatchInput>(serde_json::json!({
+            "reminder_id":"r1", "diagnosis":"x"
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<ReceiptInput>(serde_json::json!({
+            "provider_reference":"p", "provider_event_id":"e", "outcome":"sent", "occurred_at":1,
+            "treatment_detail":"x"
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<AssignInput>(serde_json::json!({
+            "owner":"Sam", "clinical_note":"x"
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<ResolveInput>(serde_json::json!({
+            "resolution":"Called patient", "diagnosis":"x"
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<BillingQuery>(serde_json::json!({
+            "tier":"clinic", "treatment":"x"
+        }))
+        .is_err());
+        assert!(
+            serde_json::from_value::<BillingReturnInput>(serde_json::json!({
+                "license":"fixture-license-token", "diagnosis":"x"
+            }))
+            .is_err()
+        );
+
+        let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
+        let state = ClinicState::for_tests(path.clone()).unwrap();
+        let connector_id = "minimal-intake-connector";
+        let secret = "minimal-intake-signing-secret";
+        state
+            .store
+            .save(
+                "fixture-owner",
+                &ClinicWorkspace {
+                    organization_id: "minimal-intake-org".to_owned(),
+                    clinic_name: "Fixture Dental".to_owned(),
+                    connector: Some(ConnectorPublic {
+                        id: connector_id.to_owned(),
+                        kind: "signed-calendar-webhook".to_owned(),
+                        connected_at: now(),
+                        last_received_at: None,
+                    }),
+                    encrypted_connector_secret: Some(state.store.encrypt(secret).unwrap()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let timestamp = now();
+        let signature = sign_hmac_sha256(secret, &format!("{timestamp}:{connector_id}:1"));
+        let rejected = crate::app_with_clinic_state("fixture", "../../dist", state.clone())
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/connectors/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-reminder-timestamp", timestamp.to_string())
+                    .header("x-reminder-signature", signature)
+                    .body(axum::body::Body::from(serde_json::json!({
+                        "connector_id": connector_id,
+                        "appointments": [{
+                            "source_id":"source-clinical-1", "patient_alias":"Patient A", "first_name":"A",
+                            "appointment_time":"2026-09-04T10:30:00Z", "clinical_note":"root canal",
+                            "channels":[{"channel":"email", "destination":"a@example.test", "consent":"allowed",
+                                "consent_source":"signed source", "consent_captured_at":"2026-08-29T09:00:00Z"}]
+                        }]
+                    }).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let stored = state.store.get("fixture-owner").unwrap().unwrap();
+        assert!(stored.reminders.is_empty());
+        let export = serde_json::to_string(&WorkspaceResponse::from(stored)).unwrap();
+        assert!(!export.contains("clinical_note"));
+        assert!(!export.contains("root canal"));
         let _ = fs::remove_dir_all(path);
     }
 
@@ -2694,7 +3336,9 @@ mod tests {
                 );
                 headers
             },
-            Json(serde_json::json!({"license":"fixture-license-token-1234"})),
+            Json(BillingReturnInput {
+                license: "fixture-license-token-1234".to_owned(),
+            }),
         )
         .await
         .unwrap()

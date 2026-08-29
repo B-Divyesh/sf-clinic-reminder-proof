@@ -76,11 +76,24 @@ describe('planning scaffold contracts', () => {
 
     expect(claims.length).toBeGreaterThanOrEqual(9);
     expect(new Set(claims.map(({ id }) => id)).size).toBe(claims.length);
+    const claimSpecs = [
+      await readRepositoryFile('tests/e2e/m1-claims.spec.ts'),
+      await readRepositoryFile('tests/e2e/managed-claims.spec.ts')
+    ].join('\n');
     for (const claim of claims) {
       expect(claim.claim.length).toBeGreaterThan(10);
       expect(claim.test).toContain(`@claim:${claim.id}`);
       expect(claim.sandbox.length).toBeGreaterThan(30);
+      const escapedId = claim.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      expect(claimSpecs.match(new RegExp(`@claim:${escapedId}(?![a-z0-9-])`, 'g'))).toHaveLength(1);
     }
+  });
+
+  test('catalog description is verb-first, plain, and no longer than 120 characters', async () => {
+    const description = (await readRepositoryFile('.factory/catalog-description.txt')).trim();
+    expect(description.length).toBeLessThanOrEqual(120);
+    expect(description).toMatch(/^Track\b/);
+    expect(description).not.toMatch(/seamless|effortless|robust|powerful|intuitive|reimagine|supercharge|delightful|journey|ecosystem|AI-powered/i);
   });
 
   test('README plain-words repairs keep each reviewed sentence short and concrete', async () => {

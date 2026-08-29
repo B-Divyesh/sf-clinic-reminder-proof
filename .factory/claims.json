@@ -133,6 +133,48 @@
     "sandbox": "fixture bearer identities create and restart a workspace, post a signed calendar batch, assert another oid gets no workspace, and assert the browser exposes the exact CIAM configuration with protected APIs"
   },
   {
+    "id": "signed-calendar-intake",
+    "claim": "The calendar intake verifies its signature and upserts each source appointment once.",
+    "where": "README connector inventory and clinic integration contract",
+    "test": "npm run test:e2e -- --grep @claim:signed-calendar-intake",
+    "sandbox": "fresh fixture clinic with an encrypted connector secret; post one correctly signed appointment batch twice and assert one source reminder exists, then alter the payload with an invalid signature and assert rejection with no state change"
+  },
+  {
+    "id": "approved-whatsapp-dispatch",
+    "claim": "A consented WhatsApp reminder uses the configured approved template and records a signed receipt.",
+    "where": "README provider inventory and clinic integration contract",
+    "test": "npm run test:e2e -- --grep @claim:approved-whatsapp-dispatch",
+    "sandbox": "fresh paid fixture clinic with recorded WhatsApp consent and an approved Twilio template; dispatch once, capture the exact adapter request with no free-form body, submit a correctly signed delivery callback, and assert delivered evidence is stored"
+  },
+  {
+    "id": "twilio-receipt-verification",
+    "claim": "Twilio receipt callbacks require a valid signature and ignore repeated receipt events.",
+    "where": "README clinic integration contract",
+    "test": "npm run test:e2e -- --grep @claim:twilio-receipt-verification",
+    "sandbox": "fresh fixture clinic with one accepted Twilio attempt; submit a valid signed callback twice and an altered signature once, then assert one receipt event, delivered state, and no change from the replay or invalid callback"
+  },
+  {
+    "id": "resend-receipt-verification",
+    "claim": "Resend receipt callbacks require a valid Svix signature and ignore repeated receipt events.",
+    "where": "README clinic integration contract",
+    "test": "npm run test:e2e -- --grep @claim:resend-receipt-verification",
+    "sandbox": "fresh fixture clinic with one accepted Resend attempt; submit a valid Svix-signed callback twice and an altered signature once, then assert one receipt event, delivered state, and no change from the replay or invalid callback"
+  },
+  {
+    "id": "managed-secret-encryption",
+    "claim": "Provider credentials and patient destinations are encrypted at rest and omitted from workspace exports.",
+    "where": "README clinic integration contract and Privacy page",
+    "test": "npm run test:e2e -- --grep @claim:managed-secret-encryption",
+    "sandbox": "fresh fixture clinic saves unique provider credentials, webhook secret, and destination; assert plaintext is absent from local and durable databases and the export, then dispatch and assert only the authorized provider adapter receives the decrypted credential and destination"
+  },
+  {
+    "id": "managed-data-minimisation",
+    "claim": "Managed JSON writes reject clinical-note, diagnosis, and treatment fields.",
+    "where": "README Privacy and terms and Privacy page",
+    "test": "npm run test:e2e -- --grep @claim:managed-data-minimisation",
+    "sandbox": "fresh fixture clinic; assert every managed JSON input rejects unknown clinical fields, post a correctly signed intake containing a clinical note, assert 422 with no reminder stored, and assert the export contains neither the field nor its value"
+  },
+  {
     "id": "no-marketing-campaigns",
     "claim": "Reminder Proof sends individual appointment reminders and accepts no campaign copy.",
     "where": "landing boundary, README",

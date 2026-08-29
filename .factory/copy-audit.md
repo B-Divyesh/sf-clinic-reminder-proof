@@ -1,6 +1,6 @@
 # Product copy audit
 
-Status: reviewed after polish 1 on 2026-08-29. Word counts treat routes, prices, and hyphenated terms as one word.
+Status: reviewed after polish 2 on 2026-08-29. Word counts treat routes, prices, and hyphenated terms as one word.
 
 ## First screen
 
@@ -123,6 +123,19 @@ No audited sentence exceeds 22 words. No copy contains leverage, seamless, effor
 
 ## Catalog description
 
-“Track reminder delivery, fallbacks, and staff-owned exceptions without replacing your clinic calendar.”
+“Track reminder outcomes, fallbacks, and staff-owned exceptions beside your clinic calendar.”
 
-Words: 12. Characters: 102. It starts with a verb, stays under 120 characters, and contains no banned term.
+Words: 11. Characters: 91. It starts with a verb, stays under 120 characters, and contains no banned term.
+
+## Review 2 claim registration
+
+No product sentence changed in round 2. The five README findings now map to six exact claim tests:
+
+| README promise | Claim test |
+| --- | --- |
+| Signed connector and idempotent upserts | `@claim:signed-calendar-intake` |
+| Approved WhatsApp template dispatch | `@claim:approved-whatsapp-dispatch` |
+| Twilio callback verification and replay handling | `@claim:twilio-receipt-verification` |
+| Resend Svix verification and replay handling | `@claim:resend-receipt-verification` |
+| Credentials and destinations encrypted at rest | `@claim:managed-secret-encryption` |
+| Managed records reject clinical fields | `@claim:managed-data-minimisation` |

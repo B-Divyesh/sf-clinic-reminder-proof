@@ -1,1 +1,1 @@
-Track reminder delivery, fallbacks, and staff-owned exceptions without replacing your clinic calendar.
+Track reminder outcomes, fallbacks, and staff-owned exceptions beside your clinic calendar.
