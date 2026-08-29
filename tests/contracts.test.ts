@@ -4,7 +4,11 @@ import { describe, expect, test } from 'vitest';
 import { effectiveConsent, foldReminderOutcome, stateCopy } from '../apps/web/src/lib/reminder';
 import { buildTopologyPatch, inspectRollout } from '../scripts/containerapp-topology.mjs';
 import { assertPublicBuildIdentity, buildShaFromImage } from '../scripts/deployment-identity.mjs';
-import { resolveCheckedOutSourceCommit } from '../scripts/source-commit.mjs';
+import {
+  assertDeploymentImageMatchesSource,
+  RELEASE_BUILD_INPUTS,
+  resolveCheckedOutSourceCommit
+} from '../scripts/source-commit.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
@@ -265,7 +269,7 @@ describe('planning scaffold contracts', () => {
     }, candidate)).toBe(candidate);
   });
 
-  test('@regression:qa15-04 deployment claim derives the checked-out image candidate instead of pinning an older build', async () => {
+  test('@regression:qa15-04 deployment claim derives the checked-out release candidate instead of pinning an older build', async () => {
     const claims = JSON.parse(await readRepositoryFile('.factory/claims.json')) as Array<{ id: string; test: string }>;
     const topologyClaim = claims.find(({ id }) => id === 'single-replica-durable-topology');
 
@@ -280,9 +284,36 @@ describe('planning scaffold contracts', () => {
       stderr: ''
       } as never;
     })).toBe('0123456789abcdef0123456789abcdef01234567');
-    expect(invoked[0]).toEqual(expect.arrayContaining(['git', 'log', '-1', '--format=%H', '--', 'Dockerfile', 'apps/web', 'services/api']));
+    expect(invoked[0]).toEqual(expect.arrayContaining([
+      'git',
+      'log',
+      '-1',
+      '--format=%H',
+      '--',
+      'Dockerfile',
+      'apps/web',
+      'services/api',
+      'deployment/containerapp.json',
+      'scripts/deploy-containerapp.mjs'
+    ]));
+    expect(RELEASE_BUILD_INPUTS).toEqual(expect.arrayContaining([
+      'deployment/containerapp.json',
+      'scripts/containerapp-topology.mjs',
+      'scripts/deploy-containerapp.mjs'
+    ]));
     expect(() => resolveCheckedOutSourceCommit(() => ({ status: 1, stdout: '', stderr: 'not a git repository' }) as never))
-      .toThrow('cannot resolve the checked-out image source commit: not a git repository');
+      .toThrow('cannot resolve the checked-out release source commit: not a git repository');
+  });
+
+  test('@regression:v16-01 deploy rejects another full image tag before it can create an unsafe candidate revision', () => {
+    const source = '0123456789abcdef0123456789abcdef01234567';
+    const image = `sociobotregistry.azurecr.io/sf-clinic-reminder-proof:${source}`;
+
+    expect(assertDeploymentImageMatchesSource(image, source)).toBe(source);
+    expect(() => assertDeploymentImageMatchesSource(
+      'sociobotregistry.azurecr.io/sf-clinic-reminder-proof:76543210fedcba9876543210fedcba9876543210',
+      source
+    )).toThrow(`deployment image build SHA must match the checked-out release source commit; expected ${source}`);
   });
 
   test('the container build context excludes Git metadata', async () => {

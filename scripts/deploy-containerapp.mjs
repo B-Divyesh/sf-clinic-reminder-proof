@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { buildTopologyPatch, inspectRollout, validateTopology } from './containerapp-topology.mjs';
-import { buildShaFromImage, fetchPublicBuildIdentity } from './deployment-identity.mjs';
+import { fetchPublicBuildIdentity } from './deployment-identity.mjs';
+import { assertDeploymentImageMatchesSource, resolveCheckedOutSourceCommit } from './source-commit.mjs';
 
 const resourceGroup = process.env.REMINDER_PROOF_RESOURCE_GROUP ?? 'sociobot';
 const appName = process.env.REMINDER_PROOF_APP_NAME ?? 'sf-clinic-reminder-proof';
@@ -30,7 +31,7 @@ function wait(milliseconds) {
 if (!image || image.startsWith('--')) {
   fail('pass --image <registry/image:tag> or set REMINDER_PROOF_IMAGE');
 }
-const expectedBuildSha = buildShaFromImage(image);
+const expectedBuildSha = assertDeploymentImageMatchesSource(image, resolveCheckedOutSourceCommit());
 
 const topology = JSON.parse(await readFile(new URL('../deployment/containerapp.json', import.meta.url), 'utf8'));
 const currentApp = JSON.parse(
