@@ -265,19 +265,24 @@ describe('planning scaffold contracts', () => {
     }, candidate)).toBe(candidate);
   });
 
-  test('@regression:qa15-04 deployment claim derives the checked-out candidate instead of pinning an older build', async () => {
+  test('@regression:qa15-04 deployment claim derives the checked-out image candidate instead of pinning an older build', async () => {
     const claims = JSON.parse(await readRepositoryFile('.factory/claims.json')) as Array<{ id: string; test: string }>;
     const topologyClaim = claims.find(({ id }) => id === 'single-replica-durable-topology');
 
     expect(topologyClaim?.test).toContain('npm run verify:deployment:current');
     expect(topologyClaim?.test).not.toMatch(/EXPECTED_BUILD_SHA=[a-f0-9]{40}/i);
-    expect(resolveCheckedOutSourceCommit(() => ({
+    const invoked: string[][] = [];
+    expect(resolveCheckedOutSourceCommit((command, args) => {
+      invoked.push([command, ...args]);
+      return {
       status: 0,
       stdout: '0123456789abcdef0123456789abcdef01234567\n',
       stderr: ''
-    }) as never)).toBe('0123456789abcdef0123456789abcdef01234567');
+      } as never;
+    })).toBe('0123456789abcdef0123456789abcdef01234567');
+    expect(invoked[0]).toEqual(expect.arrayContaining(['git', 'log', '-1', '--format=%H', '--', 'Dockerfile', 'apps/web', 'services/api']));
     expect(() => resolveCheckedOutSourceCommit(() => ({ status: 1, stdout: '', stderr: 'not a git repository' }) as never))
-      .toThrow('cannot resolve the checked-out source commit: not a git repository');
+      .toThrow('cannot resolve the checked-out image source commit: not a git repository');
   });
 
   test('the container build context excludes Git metadata', async () => {
