@@ -105,7 +105,31 @@ pub struct ResolveInput {
 pub struct Problem {
     pub code: &'static str,
     pub message: &'static str,
-    pub request_id: &'static str,
+    pub request_id: String,
+}
+
+pub fn problem_response(status: StatusCode, code: &'static str, message: &'static str) -> Response {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    tracing::warn!(
+        request_id = %request_id,
+        status = status.as_u16(),
+        code,
+        "API request rejected"
+    );
+    let mut response = (
+        status,
+        Json(Problem {
+            code,
+            message,
+            request_id: request_id.clone(),
+        }),
+    )
+        .into_response();
+    response.headers_mut().insert(
+        "x-request-id",
+        HeaderValue::from_str(&request_id).expect("UUID is a valid header value"),
+    );
+    response
 }
 
 #[derive(Debug)]
@@ -138,18 +162,7 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let mut response = (
-            self.status,
-            Json(Problem {
-                code: self.code,
-                message: self.message,
-                request_id: "available-in-response-header",
-            }),
-        )
-            .into_response();
-        response
-            .headers_mut()
-            .insert("x-request-id", HeaderValue::from_static("local-request"));
+        let mut response = problem_response(self.status, self.code, self.message);
         if let Some(seconds) = self.retry_after {
             response.headers_mut().insert(
                 header::RETRY_AFTER,

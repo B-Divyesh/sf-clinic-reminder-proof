@@ -16,6 +16,20 @@ async function openDemo(page: import('@playwright/test').Page) {
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Today’s sample reminders');
 }
 
+async function expectProblem(
+  response: import('@playwright/test').APIResponse,
+  status: number,
+  code: string
+) {
+  expect(response.status()).toBe(status);
+  expect(response.headers()['content-type']).toContain('application/json');
+  const body = await response.json() as { code: string; request_id: string };
+  expect(body.code).toBe(code);
+  expect(body.request_id).toBe(response.headers()['x-request-id']);
+  expect(body.request_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  return body.request_id;
+}
+
 test('@claim:demo-isolation Demo actions use sample data only and never contact a messaging provider.', async ({ page }) => {
   const requests: string[] = [];
   page.on('request', (request) => requests.push(request.url()));
@@ -162,19 +176,33 @@ test('@claim:no-tracking No tracking script or third-party runtime request loads
   expect(requests.every((url) => new URL(url).origin === origin)).toBe(true);
 });
 
-test('@claim:request-protection API writes enforce JSON and 16 KB body limits with structured errors.', async ({ page }) => {
+test('@claim:request-protection JSON API writes enforce content type and 16 KB body limits with structured errors.', async ({ page }) => {
   const malformed = await page.request.post('/api/v1/demo/exceptions/sofia-exception/assign', {
     headers: { 'content-type': 'application/json' },
     data: Buffer.from('{')
   });
-  expect(malformed.status()).toBe(400);
-  expect(await malformed.json()).toMatchObject({ code: 'json_invalid' });
+  const requestIds = [await expectProblem(malformed, 400, 'json_invalid')];
+  const wrongContentType = await page.request.post('/api/v1/billing/checkout', {
+    headers: { 'content-type': 'text/plain' },
+    data: Buffer.from('{"tier":"clinic"}')
+  });
+  requestIds.push(await expectProblem(wrongContentType, 415, 'content_type_invalid'));
   const tooLarge = await page.request.post('/api/v1/demo/exceptions/sofia-exception/assign', {
     headers: { 'content-type': 'application/json' },
     data: Buffer.from('x'.repeat(17_000))
   });
-  expect(tooLarge.status()).toBe(413);
-  expect(await tooLarge.json()).toMatchObject({ code: 'body_too_large' });
+  requestIds.push(await expectProblem(tooLarge, 413, 'body_too_large'));
+  const protectedTooLarge = await page.request.post('/api/v1/billing/checkout', {
+    headers: { 'content-type': 'application/json' },
+    data: Buffer.from(JSON.stringify({ tier: 'clinic', padding: 'x'.repeat(17_000) }))
+  });
+  requestIds.push(await expectProblem(protectedTooLarge, 413, 'body_too_large'));
+  const unauthorized = await page.request.post('/api/v1/billing/checkout', {
+    data: { tier: 'clinic' }
+  });
+  expect(unauthorized.headers()['www-authenticate']).toBe('Bearer');
+  requestIds.push(await expectProblem(unauthorized, 401, 'bearer_required'));
+  expect(new Set(requestIds).size).toBe(requestIds.length);
 });
 
 test('@claim:rate-limit-policy Demo creation is limited by the ingress client address and returns Retry-After.', async ({ page }) => {
@@ -264,6 +292,32 @@ test('@claim:managed-auth-storage Clinics use protected Entra-managed workspace 
   await expect(page.getByRole('button', { name: 'Sign in with Microsoft' })).toBeVisible();
 });
 
+test('@claim:no-marketing-campaigns Reminder Proof sends individual appointment reminders and accepts no campaign copy.', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText(/sends no marketing campaigns/i)).toBeVisible();
+  const rejected = await page.request.post('/api/v1/clinic/reminders/dispatch', {
+    headers: { 'idempotency-key': 'campaign-guard-browser' },
+    data: { reminder_id: 'fixture', marketing_message: 'Book another visit today' }
+  });
+  await expectProblem(rejected, 422, 'json_invalid');
+  await page.goto('/app');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Clinic reminder ledger');
+  await expect(page.getByText(/campaign|bulk marketing/i)).toHaveCount(0);
+});
+
+test('@claim:signed-in-export-delete Export and deletion are protected clinic actions.', async ({ page }) => {
+  await page.goto('/privacy');
+  await expect(page.getByText(/Signed-in clinics can export or delete their workspace/)).toBeVisible();
+  const exported = await page.request.get('/api/v1/clinic/export');
+  expect(exported.headers()['www-authenticate']).toBe('Bearer');
+  await expectProblem(exported, 401, 'bearer_required');
+  const deleted = await page.request.delete('/api/v1/clinic', {
+    headers: { 'x-confirm-delete': 'fixture-org' }
+  });
+  expect(deleted.headers()['www-authenticate']).toBe('Bearer');
+  await expectProblem(deleted, 401, 'bearer_required');
+});
+
 test('public routes have no serious or critical axe findings', async ({ page }) => {
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
@@ -274,6 +328,26 @@ test('public routes have no serious or critical axe findings', async ({ page }) 
       expect(results.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact ?? ''))).toEqual([]);
     }
   }
+});
+
+test('@claim:explicit-theme-choice Explicit theme choices override the system, persist, and keep one description meta', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  for (const path of ['/', '/demo', '/start', '/app', '/privacy', '/terms', '/404', '/missing']) {
+    await page.goto(path);
+    expect(await page.locator('meta[name="description"]').count(), path).toBe(1);
+  }
+  await page.goto('/');
+  const theme = page.getByLabel('Color theme');
+  await theme.selectOption('dark');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  expect(await page.locator('meta[name="theme-color"]').getAttribute('content')).toBe('#071519');
+  await page.reload();
+  await expect(theme).toHaveValue('dark');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await theme.selectOption('light');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await theme.selectOption('system');
+  await expect(page.locator('html')).not.toHaveAttribute('data-theme');
 });
 
 test('public pages have no console errors and local links resolve', async ({ page }) => {

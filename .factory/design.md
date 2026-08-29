@@ -28,7 +28,7 @@ Use Svelte 5 + Vite + strict TypeScript for the web app. The ledger, evidence dr
 
 ## Palette
 
-The default is a light “clinic daylight” treatment. A complete dark “after-hours” treatment follows the user’s system preference and can be chosen explicitly. Both use the same semantic roles.
+The default is a light “clinic daylight” treatment. A complete dark “after-hours” treatment follows the user’s system preference. The header control explicitly chooses system, clinic daylight, or after hours and keeps an explicit choice for the next visit. Both treatments use the same semantic roles.
 
 | Token | Light | Dark | Purpose |
 | --- | --- | --- | --- |

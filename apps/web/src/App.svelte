@@ -49,6 +49,7 @@
     exception: ClinicException | null;
   };
   type ClinicWorkspace = { organization_id: string; clinic_name: string; location_name: string; timezone: string; connector: { id: string; kind: string; last_received_at: number | null } | null; providers: { id: string; channel: string; kind: string; from: string; approved_template_id: string }[]; reminders: ClinicReminder[]; subscription: { tier: string | null; status: string | null } };
+  type ThemeChoice = 'system' | 'light' | 'dark';
 
   let pagePath = typeof window === 'undefined' ? '/' : window.location.pathname;
   let demo: DemoData | null = null;
@@ -64,6 +65,7 @@
   let authReady = false;
   let connectorSecret = '';
   let pendingLicense = '';
+  let themeChoice: ThemeChoice = 'system';
 
   const description =
     'Track appointment reminder attempts, delivery evidence, safe fallbacks, and staff-owned exceptions without replacing your clinic calendar.';
@@ -89,6 +91,14 @@
     : null;
 
   onMount(() => {
+    const savedTheme = localStorage.getItem('reminder-proof:theme');
+    if (savedTheme === 'light' || savedTheme === 'dark') themeChoice = savedTheme;
+    applyTheme(themeChoice);
+    const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
+    const syncSystemTheme = () => {
+      if (themeChoice === 'system') applyTheme('system');
+    };
+    systemTheme.addEventListener('change', syncSystemTheme);
     const currentUrl = new URL(window.location.href);
     const returnedLicense = currentUrl.searchParams.get('license');
     if (returnedLicense) {
@@ -121,8 +131,23 @@
       window.removeEventListener('popstate', pop);
       window.removeEventListener('online', online);
       window.removeEventListener('offline', offlineEvent);
+      systemTheme.removeEventListener('change', syncSystemTheme);
     };
   });
+
+  function applyTheme(choice: ThemeChoice) {
+    if (choice === 'system') delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = choice;
+    const isDark = choice === 'dark' || (choice === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', isDark ? '#071519' : '#f3f7f5');
+  }
+
+  function setTheme(choice: ThemeChoice) {
+    themeChoice = choice;
+    if (choice === 'system') localStorage.removeItem('reminder-proof:theme');
+    else localStorage.setItem('reminder-proof:theme', choice);
+    applyTheme(choice);
+  }
 
   function isDemoPath() {
     return pagePath === '/demo' || pagePath.startsWith('/demo/reminders/');
@@ -407,12 +432,21 @@
     <span class="wordmark-mark" aria-hidden="true"><i></i><i></i></span>
     <span>Reminder Proof</span>
   </a>
-  <nav aria-label="Primary navigation">
-    <a href="/demo" onclick={(event) => follow(event, '/demo')}>Demo</a>
-    <a href="/start" onclick={(event) => follow(event, '/start')}>For clinics</a>
-    <a href="/#how">How it works</a>
-    <a href="/privacy" onclick={(event) => follow(event, '/privacy')}>Privacy</a>
-  </nav>
+  <div class="header-controls">
+    <nav aria-label="Primary navigation">
+      <a href="/demo" onclick={(event) => follow(event, '/demo')}>Demo</a>
+      <a href="/start" onclick={(event) => follow(event, '/start')}>For clinics</a>
+      <a href="/#how">How it works</a>
+      <a href="/privacy" onclick={(event) => follow(event, '/privacy')}>Privacy</a>
+    </nav>
+    <label class="theme-control">Theme
+      <select aria-label="Color theme" value={themeChoice} onchange={(event) => setTheme(event.currentTarget.value as ThemeChoice)}>
+        <option value="system">System</option>
+        <option value="light">Clinic daylight</option>
+        <option value="dark">After hours</option>
+      </select>
+    </label>
+  </div>
 </header>
 
 <main id="main" tabindex="-1">

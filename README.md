@@ -46,6 +46,8 @@ All clinic routes require an Entra bearer token. The stable `oid` claim owns the
 - Configure Twilio for SMS or approved WhatsApp templates, or Resend for email. Credentials and patient destinations are encrypted at rest.
 - Twilio receives its status callback URL during dispatch and is verified with `X-Twilio-Signature`. Resend receipt callbacks use its Svix headers (`svix-id`, `svix-timestamp`, and `svix-signature`) and the stored `whsec_…` webhook secret.
 - Receipt event IDs are idempotent. A terminal failure tries the next recorded-consent channel; exhaustion opens a shared exception.
+- Reminder dispatch accepts one scheduled reminder ID and no client-supplied campaign copy. JSON API writes require `application/json`, accept at most 16 KB, and return structured errors with a correlatable request ID.
+- Signed-in clinics can export their own minimized workspace. Deletion requires the same clinic's organization ID as explicit confirmation.
 - The signed-in workspace requests checkout through the same-origin billing route, which returns only the Sociobot checkout URL. No payment provider is embedded.
 
 ## Verify

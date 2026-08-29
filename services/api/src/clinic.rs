@@ -192,6 +192,7 @@ pub struct AppointmentInput {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DispatchInput {
     reminder_id: String,
 }
@@ -249,7 +250,14 @@ pub struct WorkspaceResponse {
     connector: Option<ConnectorPublic>,
     providers: Vec<ProviderPublic>,
     reminders: Vec<ClinicReminder>,
-    subscription: Subscription,
+    subscription: SubscriptionPublic,
+}
+
+#[derive(Serialize)]
+struct SubscriptionPublic {
+    tier: Option<String>,
+    status: Option<String>,
+    checked_at: Option<u64>,
 }
 
 impl From<ClinicWorkspace> for WorkspaceResponse {
@@ -273,7 +281,11 @@ impl From<ClinicWorkspace> for WorkspaceResponse {
             connector: value.connector,
             providers,
             reminders: value.reminders,
-            subscription: value.subscription,
+            subscription: SubscriptionPublic {
+                tier: value.subscription.tier,
+                status: value.subscription.status,
+                checked_at: value.subscription.checked_at,
+            },
         }
     }
 }
@@ -1304,10 +1316,7 @@ async fn send_provider(
             Err(format!("http-{}", status.as_u16()))
         };
     }
-    let message = format!(
-        "Hi {}, reminder: appointment at {} on {}. Reply STOP to opt out.",
-        reminder.first_name, workspace.clinic_name, reminder.appointment_time
-    );
+    let message = appointment_reminder_message(reminder, workspace);
     let response = if provider.kind == "twilio" {
         let endpoint = format!("https://api.twilio.com/2010-04-01/Accounts/{}/Messages.json", provider.account_id);
         let mut form = vec![("From", provider.from.clone()), ("To", if channel.channel == "whatsapp" { format!("whatsapp:{}", channel.destination) } else { channel.destination.clone() })];
@@ -1329,6 +1338,13 @@ async fn send_provider(
         .and_then(|value| value.as_str())
         .map(str::to_owned)
         .ok_or_else(|| "reference-missing".to_owned())
+}
+
+fn appointment_reminder_message(reminder: &ClinicReminder, workspace: &ClinicWorkspace) -> String {
+    format!(
+        "Hi {}, reminder: appointment at {} on {}. Reply STOP to opt out.",
+        reminder.first_name, workspace.clinic_name, reminder.appointment_time
+    )
 }
 
 pub async fn provider_receipt(
@@ -2067,6 +2083,7 @@ pub async fn billing_return(
 mod tests {
     use super::*;
     use axum::{routing::get, routing::post, Router};
+    use http_body_util::BodyExt;
     use tokio::net::TcpListener;
     use tower::ServiceExt;
 
@@ -2401,6 +2418,131 @@ mod tests {
         let exported = serde_json::to_string(&WorkspaceResponse::from(workspace)).unwrap();
         assert!(!exported.contains("calendar-signing-secret"));
         assert!(!exported.contains("connector.configured"));
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[tokio::test]
+    async fn managed_claim_no_marketing_campaigns() {
+        assert!(serde_json::from_str::<DispatchInput>(
+            r#"{"reminder_id":"r1","marketing_message":"Book another visit today"}"#
+        )
+        .is_err());
+
+        let workspace = ClinicWorkspace {
+            clinic_name: "Fixture Dental".to_owned(),
+            ..Default::default()
+        };
+        let reminder = appointment(&[("sms", "allowed")]);
+        let content = appointment_reminder_message(&reminder, &workspace);
+        assert_eq!(
+            content,
+            "Hi A, reminder: appointment at Fixture Dental on 2026-09-01 09:00. Reply STOP to opt out."
+        );
+        assert!(!content.contains("Book another visit"));
+
+        let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
+        let state = ClinicState::for_tests(path.clone()).unwrap();
+        let application = crate::app_with_clinic_state("fixture", "../../dist", state);
+        let rejected = application
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/clinic/reminders/dispatch")
+                    .header(header::AUTHORIZATION, "Bearer test:fixture-owner")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("idempotency-key", "fixture-campaign-guard")
+                    .body(axum::body::Body::from(
+                        r#"{"reminder_id":"r1","marketing_message":"Book another visit today"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let body = rejected.into_body().collect().await.unwrap().to_bytes();
+        assert!(std::str::from_utf8(&body).unwrap().contains("json_invalid"));
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[tokio::test]
+    async fn managed_claim_export_and_delete_are_owner_scoped() {
+        let path = std::env::temp_dir().join(format!("reminder-proof-{}", Uuid::new_v4()));
+        let state = ClinicState::for_tests(path.clone()).unwrap();
+        let workspace = ClinicWorkspace {
+            organization_id: "fixture-org".to_owned(),
+            clinic_name: "Fixture Dental".to_owned(),
+            location_name: "Main".to_owned(),
+            timezone: "UTC".to_owned(),
+            reminders: vec![appointment(&[("sms", "allowed")])],
+            ..Default::default()
+        };
+        state.store.save("fixture-owner", &workspace).unwrap();
+        let application = crate::app_with_clinic_state("fixture", "../../dist", state.clone());
+
+        let exported = application
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/clinic/export")
+                    .header(header::AUTHORIZATION, "Bearer test:fixture-owner")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(exported.status(), StatusCode::OK);
+        assert_eq!(
+            exported.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+            "attachment; filename=reminder-proof-export.json"
+        );
+        let export_body = exported.into_body().collect().await.unwrap().to_bytes();
+        let export_text = std::str::from_utf8(&export_body).unwrap();
+        assert!(export_text.contains("Fixture Dental"));
+        assert!(!export_text.contains("encrypted_"));
+
+        let other_clinic = application
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/clinic/export")
+                    .header(header::AUTHORIZATION, "Bearer test:another-owner")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(other_clinic.status(), StatusCode::NOT_FOUND);
+
+        let unconfirmed = application
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/clinic")
+                    .header(header::AUTHORIZATION, "Bearer test:fixture-owner")
+                    .header("x-confirm-delete", "wrong-org")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unconfirmed.status(), StatusCode::CONFLICT);
+        assert!(state.store.get("fixture-owner").unwrap().is_some());
+
+        let deleted = application
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/clinic")
+                    .header(header::AUTHORIZATION, "Bearer test:fixture-owner")
+                    .header("x-confirm-delete", "fixture-org")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+        assert!(state.store.get("fixture-owner").unwrap().is_none());
         let _ = fs::remove_dir_all(path);
     }
 

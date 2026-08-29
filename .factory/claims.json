@@ -84,11 +84,18 @@
     "sandbox": "fresh browser context; record every request from landing through one-click demo entry and assert every URL is same-origin"
   },
   {
+    "id": "explicit-theme-choice",
+    "claim": "Visitors can follow the system theme or explicitly choose clinic daylight or after hours.",
+    "where": "site header, visual thesis",
+    "test": "npm run test:e2e -- --grep @claim:explicit-theme-choice",
+    "sandbox": "fresh browser with a light system theme; choose after hours, reload to prove persistence, choose clinic daylight, then restore system and assert the applied theme tokens and one description meta per route"
+  },
+  {
     "id": "request-protection",
-    "claim": "API writes enforce JSON and 16 KB body limits with structured errors.",
+    "claim": "JSON API writes enforce application/json and 16 KB body limits with structured errors.",
     "where": "README",
     "test": "npm run test:e2e -- --grep @claim:request-protection",
-    "sandbox": "fresh demo session; send malformed JSON and a 17 KB body and assert 400/413 JSON problem responses with actionable codes"
+    "sandbox": "fresh client; send malformed JSON, the wrong content type, and 17 KB bodies to demo and protected billing writes; assert 400/415/413 JSON problems with unique UUID request IDs matching X-Request-Id, then assert the same correlation on 401"
   },
   {
     "id": "rate-limit-policy",
@@ -117,6 +124,20 @@
     "where": "Start for real, clinic workspace, Privacy page, README",
     "test": "cargo test --manifest-path services/api/Cargo.toml managed_claim_clinic_flow_is_authenticated_signed_durable_and_consent_aware && npm run test:e2e -- --grep @claim:managed-auth-storage",
     "sandbox": "fixture bearer identities create and restart a workspace, post a signed calendar batch, assert another oid gets no workspace, and assert the browser exposes the exact CIAM configuration with protected APIs"
+  },
+  {
+    "id": "no-marketing-campaigns",
+    "claim": "Reminder Proof sends individual appointment reminders and accepts no campaign copy.",
+    "where": "landing boundary, README",
+    "test": "cargo test --manifest-path services/api/Cargo.toml managed_claim_no_marketing_campaigns && npm run test:e2e -- --grep @claim:no-marketing-campaigns",
+    "sandbox": "fixture managed dispatch rejects client-supplied marketing copy, generates only the fixed appointment reminder fields, and the browser confirms no campaign or bulk-marketing action is exposed"
+  },
+  {
+    "id": "signed-in-export-delete",
+    "claim": "A signed-in clinic can export its own workspace and delete it only with its organization confirmation.",
+    "where": "Privacy page, clinic workspace, README",
+    "test": "cargo test --manifest-path services/api/Cargo.toml managed_claim_export_and_delete_are_owner_scoped && npm run test:e2e -- --grep @claim:signed-in-export-delete",
+    "sandbox": "fixture bearer owner exports a minimized attachment, another oid cannot read it, incorrect deletion confirmation preserves it, correct organization confirmation deletes it, and anonymous browser requests remain protected"
   },
   {
     "id": "managed-provider-fallback-receipt",

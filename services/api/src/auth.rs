@@ -7,13 +7,12 @@ use std::{
 use axum::{
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    Json,
 };
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::demo::Problem;
+use crate::demo::problem_response;
 
 const DEFAULT_TENANT: &str = "35c6fe40-0ec0-46b6-98c6-213ad4de6650";
 const DEFAULT_SUBDOMAIN: &str = "sociobotcustomers";
@@ -218,15 +217,7 @@ impl IntoResponse for AuthError {
                 "Identity validation is temporarily unavailable. Try again shortly.",
             ),
         };
-        let mut response = (
-            status,
-            Json(Problem {
-                code,
-                message,
-                request_id: "available-in-response-header",
-            }),
-        )
-            .into_response();
+        let mut response = problem_response(status, code, message);
         response
             .headers_mut()
             .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));

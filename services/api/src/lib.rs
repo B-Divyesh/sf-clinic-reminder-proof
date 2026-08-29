@@ -25,15 +25,18 @@ use tower_governor::{
 };
 use tower_http::{
     compression::CompressionLayer,
+    limit::RequestBodyLimitLayer,
     services::{ServeDir, ServeFile},
     trace::TraceLayer,
 };
 
 use crate::clinic::ClinicState;
 use crate::demo::{
-    advance, advance_due, assign_exception, create_workspace, reset_workspace, resolve_exception,
-    state as demo_state, undo_exception, DemoStore, Problem,
+    advance, advance_due, assign_exception, create_workspace, problem_response, reset_workspace,
+    resolve_exception, state as demo_state, undo_exception, DemoStore,
 };
+
+const API_BODY_LIMIT: usize = 16 * 1024;
 
 #[derive(Clone)]
 struct AppState {
@@ -101,7 +104,8 @@ fn app_with_clinic_state(
         .route("/v1/demo/exceptions/{id}/resolve", post(resolve_exception))
         .route("/v1/demo/exceptions/{id}/undo", post(undo_exception))
         .with_state(demo_store)
-        .layer(DefaultBodyLimit::max(16 * 1024))
+        .layer(DefaultBodyLimit::max(API_BODY_LIMIT))
+        .layer(RequestBodyLimitLayer::new(API_BODY_LIMIT))
         .layer(GovernorLayer::new(api_governor.clone()).error_handler(governor_error))
         .layer(middleware::from_fn(normalize_api_errors));
     let clinic_api = Router::new()
@@ -140,7 +144,8 @@ fn app_with_clinic_state(
         .route("/v1/billing/checkout", post(clinic::billing_checkout))
         .route("/v1/billing/return", post(clinic::billing_return))
         .with_state(clinic_state)
-        .layer(DefaultBodyLimit::max(5 * 1024 * 1024))
+        .layer(DefaultBodyLimit::max(API_BODY_LIMIT))
+        .layer(RequestBodyLimitLayer::new(API_BODY_LIMIT))
         .layer(GovernorLayer::new(api_governor.clone()).error_handler(governor_error))
         .layer(middleware::from_fn(normalize_api_errors));
     let operations = Router::new()
@@ -189,15 +194,11 @@ fn governor_error(error: GovernorError) -> Response {
         GovernorError::TooManyRequests { wait_time, .. } => wait_time.max(1),
         _ => 1,
     };
-    let mut response = (
+    let mut response = problem_response(
         StatusCode::TOO_MANY_REQUESTS,
-        Json(Problem {
-            code: "rate_limited",
-            message: "Too many requests. Wait, then try again.",
-            request_id: "available-in-response-header",
-        }),
-    )
-        .into_response();
+        "rate_limited",
+        "Too many requests. Wait, then try again.",
+    );
     response.headers_mut().insert(
         header::RETRY_AFTER,
         HeaderValue::from_str(&wait_time.to_string()).expect("valid retry-after"),
@@ -214,37 +215,31 @@ async fn normalize_api_errors(request: Request, next: Next) -> Response {
     let response = next.run(request).await;
     if matches!(
         response.status(),
-        StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY | StatusCode::PAYLOAD_TOO_LARGE
+        StatusCode::BAD_REQUEST
+            | StatusCode::UNSUPPORTED_MEDIA_TYPE
+            | StatusCode::UNPROCESSABLE_ENTITY
+            | StatusCode::PAYLOAD_TOO_LARGE
     ) && response
         .headers()
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .is_none_or(|value| !value.starts_with("application/json"))
     {
-        let (code, message) = if response.status() == StatusCode::PAYLOAD_TOO_LARGE {
-            (
+        let (code, message) = match response.status() {
+            StatusCode::PAYLOAD_TOO_LARGE => (
                 "body_too_large",
                 "The request body is too large. Send no more than 16 KB.",
-            )
-        } else {
-            (
+            ),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE => (
+                "content_type_invalid",
+                "Send this request as application/json, then try again.",
+            ),
+            _ => (
                 "json_invalid",
                 "The request is not valid JSON. Check the fields and try again.",
-            )
+            ),
         };
-        let mut normalized = (
-            response.status(),
-            Json(Problem {
-                code,
-                message,
-                request_id: "available-in-response-header",
-            }),
-        )
-            .into_response();
-        normalized
-            .headers_mut()
-            .insert("x-request-id", HeaderValue::from_static("local-request"));
-        return normalized;
+        return problem_response(response.status(), code, message);
     }
     response
 }
@@ -332,6 +327,31 @@ mod tests {
             .next()
             .unwrap()
             .to_owned()
+    }
+
+    async fn assert_problem(
+        response: Response,
+        expected_status: StatusCode,
+        expected_code: &str,
+    ) -> String {
+        assert_eq!(response.status(), expected_status);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/json"
+        );
+        let header_id = response
+            .headers()
+            .get("x-request-id")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        Uuid::parse_str(&header_id).expect("request ID is a UUID");
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let problem: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(problem["code"], expected_code);
+        assert_eq!(problem["request_id"], header_id);
+        header_id
     }
 
     #[tokio::test]
@@ -559,6 +579,75 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         let body = response.into_body().collect().await.unwrap().to_bytes();
         assert!(std::str::from_utf8(&body).unwrap().contains("json_invalid"));
+    }
+
+    #[tokio::test]
+    async fn every_json_write_boundary_and_auth_error_has_a_correlatable_request_id() {
+        let application = test_app();
+        let wrong_content_type = application
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/billing/checkout")
+                    .header("x-forwarded-for", "198.51.100.71")
+                    .header(header::CONTENT_TYPE, "text/plain")
+                    .body(Body::from(r#"{"tier":"clinic"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let content_type_id = assert_problem(
+            wrong_content_type,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "content_type_invalid",
+        )
+        .await;
+
+        let oversized = application
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/billing/checkout")
+                    .header("x-forwarded-for", "198.51.100.72")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::CONTENT_LENGTH, "17027")
+                    .body(Body::from(format!(
+                        r#"{{"tier":"clinic","padding":"{}"}}"#,
+                        "x".repeat(17_000)
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let oversized_id =
+            assert_problem(oversized, StatusCode::PAYLOAD_TOO_LARGE, "body_too_large").await;
+
+        let unauthorized = application
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/billing/checkout")
+                    .header("x-forwarded-for", "198.51.100.73")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"tier":"clinic"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            unauthorized
+                .headers()
+                .get(header::WWW_AUTHENTICATE)
+                .unwrap(),
+            "Bearer"
+        );
+        let unauthorized_id =
+            assert_problem(unauthorized, StatusCode::UNAUTHORIZED, "bearer_required").await;
+
+        assert_ne!(content_type_id, oversized_id);
+        assert_ne!(oversized_id, unauthorized_id);
     }
 
     #[tokio::test]
