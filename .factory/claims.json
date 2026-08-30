@@ -215,5 +215,47 @@
     "where": "README, operations guide, deployment configuration",
     "test": "npm run test:e2e -- --grep @claim:single-replica-durable-topology && npm run verify:deployment:current",
     "sandbox": "assert the checked-in Container Apps template has one min/max replica and two Azure Files mounts, then inspect the active Azure revision and issue six same-client demo creations; requests one through five must pass and request six must return 429 with Retry-After"
+  },
+  {
+    "id": "ciam-sign-in",
+    "claim": "Sign in uses the shared Sociobot customer account.",
+    "where": "sign-in page and clinic entry",
+    "test": "npm run test:e2e -- --grep @claim:ciam-sign-in",
+    "sandbox": "fresh demo browser context; open the sign-in route, assert the public tenant, client, authority, title, and sign-in action, then run the recorded token-claim contract for issuer, audience, tenant, expiry, and not-before"
+  },
+  {
+    "id": "tenant-isolation",
+    "claim": "Clinic data stays inside its organization.",
+    "where": "clinic settings and Privacy page",
+    "test": "npm run test:e2e -- --grep @claim:tenant-isolation",
+    "sandbox": "fresh demo browser context plus temporary database; create an owner and viewer in tenant A, prove the viewer can read A but cannot export it, and prove an unrelated identity sees no organization"
+  },
+  {
+    "id": "durable-onboarding",
+    "claim": "Clinic and location settings remain after sign-out and sign-in.",
+    "where": "three-step onboarding and README",
+    "test": "npm run test:e2e -- --grep @claim:durable-onboarding",
+    "sandbox": "fresh demo browser context plus temporary database; open every onboarding route, save clinic, jurisdiction, retention, location, owner, and staff, reopen the database, and assert every normalized record remains; apply, reverse, and reapply the M2 migration"
+  },
+  {
+    "id": "subscription-price",
+    "claim": "Clinic costs $79 per location each month.",
+    "where": "landing page, billing settings, and Terms page",
+    "test": "npm run test:e2e -- --grep @claim:subscription-price",
+    "sandbox": "fresh demo browser context; assert the public price in two routes, then use a local Sociobot gateway contract to assert all three tier allowlists, hosted checkout redirect, entitlement verification, and encrypted token storage"
+  },
+  {
+    "id": "data-export",
+    "claim": "An owner can export the clinic’s stored data.",
+    "where": "clinic data controls and Privacy page",
+    "test": "npm run test:e2e -- --grep @claim:data-export",
+    "sandbox": "fresh demo browser context plus temporary tenant; assert the owner receives a minimized JSON attachment and export record while a viewer is denied"
+  },
+  {
+    "id": "account-deletion",
+    "claim": "An owner can schedule account deletion with a seven-day recovery window.",
+    "where": "clinic data controls and README",
+    "test": "npm run test:e2e -- --grep @claim:account-deletion",
+    "sandbox": "fresh demo browser context plus temporary tenant; schedule deletion, assert the cancellation deadline is exactly seven days later, cancel it, and assert clinic data remains"
   }
 ]

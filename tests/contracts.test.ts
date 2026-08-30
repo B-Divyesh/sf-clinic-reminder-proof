@@ -86,7 +86,8 @@ describe('planning scaffold contracts', () => {
     expect(new Set(claims.map(({ id }) => id)).size).toBe(claims.length);
     const claimSpecs = [
       await readRepositoryFile('tests/e2e/m1-claims.spec.ts'),
-      await readRepositoryFile('tests/e2e/managed-claims.spec.ts')
+      await readRepositoryFile('tests/e2e/managed-claims.spec.ts'),
+      await readRepositoryFile('tests/e2e/m2-claims.spec.ts')
     ].join('\n');
     for (const claim of claims) {
       expect(claim.claim.length).toBeGreaterThan(10);
