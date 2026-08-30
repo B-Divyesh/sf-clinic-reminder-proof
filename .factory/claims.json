@@ -183,10 +183,10 @@
   },
   {
     "id": "signed-in-export-delete",
-    "claim": "A signed-in clinic can export its own workspace and delete it only with its organization confirmation.",
+    "claim": "A signed-in clinic can export its workspace and schedule deletion only with its organization confirmation.",
     "where": "Privacy page, clinic workspace, README",
     "test": "cargo test --manifest-path services/api/Cargo.toml managed_claim_export_and_delete_are_owner_scoped && npm run test:e2e -- --grep @claim:signed-in-export-delete",
-    "sandbox": "fixture bearer owner exports a minimized attachment, another oid cannot read it, incorrect deletion confirmation preserves it, correct organization confirmation deletes it, and anonymous browser requests remain protected"
+    "sandbox": "fixture bearer owner exports a minimized attachment, another oid cannot read it, incorrect deletion confirmation preserves it, correct organization confirmation schedules a seven-day recovery window, and anonymous browser requests remain protected"
   },
   {
     "id": "managed-provider-fallback-receipt",

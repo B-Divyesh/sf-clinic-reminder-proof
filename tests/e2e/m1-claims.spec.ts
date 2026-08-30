@@ -366,7 +366,7 @@ test('@claim:no-marketing-campaigns Reminder Proof sends individual appointment 
 
 test('@claim:signed-in-export-delete Export and deletion are protected clinic actions.', async ({ page }) => {
   await page.goto('/privacy');
-  await expect(page.getByText(/Signed-in clinics can export or delete their workspace/)).toBeVisible();
+  await expect(page.getByText(/Signed-in clinics can export their workspace or schedule its deletion/)).toBeVisible();
   const exported = await page.request.get('/api/v1/clinic/export');
   expect(exported.headers()['www-authenticate']).toBe('Bearer');
   await expectProblem(exported, 401, 'bearer_required');

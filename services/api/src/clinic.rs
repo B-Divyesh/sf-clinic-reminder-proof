@@ -937,30 +937,6 @@ impl ClinicStore {
         let changed = self.connection.lock().map_err(|_| internal())?.execute("INSERT OR IGNORE INTO provider_receipts(provider_event_id,organization_id,received_at) VALUES(?1,?2,?3)", params![event_id, organization_id, now()]).map_err(|_| internal())?;
         Ok(changed == 1)
     }
-
-    fn delete(&self, oid: &str) -> Result<(), ApiError> {
-        let connection = self.connection.lock().map_err(|_| internal())?;
-        let organization_id = connection
-            .query_row(
-                "SELECT organization_id FROM clinic_workspaces WHERE oid=?1",
-                params![oid],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|_| internal())?;
-        connection
-            .execute("DELETE FROM clinic_workspaces WHERE oid=?1", params![oid])
-            .map_err(|_| internal())?;
-        if let Some(organization_id) = organization_id {
-            connection
-                .execute(
-                    "DELETE FROM organizations WHERE id=?1",
-                    params![organization_id],
-                )
-                .map_err(|_| internal())?;
-        }
-        self.backup_locked(&connection)
-    }
 }
 
 fn sync_account_records(
@@ -2764,9 +2740,9 @@ pub async fn cancel_account_deletion(
 pub async fn delete_workspace(
     State(state): State<ClinicState>,
     headers: HeaderMap,
-) -> Result<StatusCode, Response> {
+) -> Result<(StatusCode, Json<DeletionResponse>), Response> {
     let identity = identity(&state, &headers).await?;
-    let workspace = state
+    let mut workspace = state
         .store
         .get(&identity.oid)
         .map_err(IntoResponse::into_response)?
@@ -2784,11 +2760,29 @@ pub async fn delete_workspace(
         )
         .into_response());
     }
+    let scheduled_at = now();
+    let cancel_until = scheduled_at + 7 * 86_400;
+    workspace.deletion = Some(DeletionSchedule {
+        scheduled_at,
+        cancel_until,
+    });
+    workspace.audit.push(AuditEvent {
+        at: scheduled_at,
+        actor: identity.oid.clone(),
+        action: "organization.deletion_scheduled".to_owned(),
+        target: workspace.organization_id.clone(),
+    });
     state
         .store
-        .delete(&identity.oid)
+        .save(&identity.oid, &workspace)
         .map_err(IntoResponse::into_response)?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(DeletionResponse {
+            status: "scheduled",
+            cancel_until: Some(cancel_until),
+        }),
+    ))
 }
 
 pub async fn billing_checkout(
@@ -4044,7 +4038,7 @@ mod tests {
         assert_eq!(unconfirmed.status(), StatusCode::CONFLICT);
         assert!(state.store.get("fixture-owner").unwrap().is_some());
 
-        let deleted = application
+        let scheduled = application
             .oneshot(
                 axum::http::Request::builder()
                     .method("DELETE")
@@ -4056,8 +4050,10 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
-        assert!(state.store.get("fixture-owner").unwrap().is_none());
+        assert_eq!(scheduled.status(), StatusCode::ACCEPTED);
+        let stored = state.store.get("fixture-owner").unwrap().unwrap();
+        let deletion = stored.deletion.expect("deletion schedule");
+        assert_eq!(deletion.cancel_until - deletion.scheduled_at, 7 * 86_400);
         let _ = fs::remove_dir_all(path);
     }
 
