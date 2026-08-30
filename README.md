@@ -8,7 +8,7 @@ Open `/?demo=1` or `/demo`. The server creates a random, 24-hour sample workspac
 
 Advance the sample reminders and inspect their evidence. Assign or resolve the sample exception, undo a resolution, and reset the sample clinic.
 
-“Start for real” opens the managed clinic workflow. A clinic signs in through Sociobot Microsoft Entra, creates its workspace, connects a signed calendar feed, and configures approved messaging providers. Reminder Proof checks recorded consent before sending. It records messaging-provider receipts and opens a shared exception when delivery proof is missing.
+“Start for real” opens the managed clinic workflow. A clinic signs in through the shared Sociobot Microsoft Entra tenant. Setup records its jurisdiction, retention choice, first location, and staff roles. Reminder Proof checks recorded consent before sending. It records messaging-provider receipts and opens a shared exception when delivery proof is missing.
 
 ## What is included
 
@@ -16,7 +16,8 @@ Advance the sample reminders and inspect their evidence. Assign or resolve the s
 - A service on this site keeps demo sessions separate from clinic data. It includes rate limits, health checks, and machine-readable metrics.
 - A signed calendar/EMR connection stores each appointment once, even when it receives the same update twice.
 - Twilio SMS and approved WhatsApp dispatch, Resend email fallback, and signed receipt reconciliation.
-- Shared exception assignment and resolution, clinic export/delete, and Sociobot-hosted subscription checkout at $79 per location each month. Messaging-provider fees are separate.
+- Owner-only clinic export and a cancelable seven-day deletion window.
+- Sociobot-hosted monthly plan checkout starts at $79 per location. Messaging-provider fees are separate.
 - The site includes pulse-ledger art, a favicon, a touch icon, a social card, and self-hosted Instrument Sans and Fragment Mono fonts.
 - Playwright claim tests that begin with a fresh demo browser context. See [`.factory/claims.json`](.factory/claims.json).
 
@@ -33,7 +34,9 @@ npm run build:web
 npm run dev:api             # Same-origin app server on http://127.0.0.1:8080
 ```
 
-The API requires no configuration and uses `PORT` (default `8080`). The single-replica SQLite writer runs below `DATA_DIR` (the image defaults to `/data`) instead of on an SMB mount. Each saved change writes a matching durable database and key under `DURABLE_DIR`. A daily recovery copy is kept under `BACKUP_DIR` for 30 days. Startup restores the durable pair before serving. Entra tenant settings may override the documented Sociobot defaults.
+The API requires no configuration and uses `PORT` (default `8080`). The single-replica SQLite writer runs below `DATA_DIR` instead of on an SMB mount. M2 adds reversible migrations for accounts, clinics, locations, roles, subscriptions, audit events, preferences, and exports. Each saved change writes a matching durable database and key under `DURABLE_DIR`. A daily recovery copy is kept under `BACKUP_DIR` for 30 days. Startup restores the durable pair before serving. Entra tenant settings may override the documented Sociobot defaults.
+
+Billing defaults to the live Sociobot pilot gateway and Dodo test mode. Set `SOCIOBOT_BILLING_BASE_URL` only to change the gateway. The Clinic, Practice, and Network choices are allowlisted on the server. The pilot product must be enabled by a factory operator before checkout can finish.
 
 The production container pins the app to one replica so SQLite and demo-creation limits have one state owner. The container mounts separate durable and backup shares at `/durable` and `/backups`. The application runs without root privileges. Recovery steps and the restore regression are documented in [`.factory/operations.md`](.factory/operations.md). Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Sociobot Entra SPA before sign-in is opened to clinics.
 
@@ -41,7 +44,7 @@ The production image refuses to start when either required share is missing. Com
 
 ## Clinic integration contract
 
-All clinic routes require an Entra bearer token. The stable `oid` claim owns the workspace; email is never an identity key.
+All clinic routes require an Entra bearer token. The stable `oid` claim links the user; email is never an identity key. Owners control billing, exports, deletion, and staff roles. Active staff can read only their clinic.
 
 - Create a signed calendar connector in `/app`. Post normalized appointment batches to `/api/v1/connectors/intake` with `X-Reminder-Timestamp` and `X-Reminder-Signature`.
 - Sign the UTF-8 string `<timestamp>:<connector-id>:<appointment-count>` with HMAC-SHA256. Encode the result as URL-safe base64 without padding.
@@ -49,8 +52,8 @@ All clinic routes require an Entra bearer token. The stable `oid` claim owns the
 - Twilio receives its status callback URL during dispatch and is verified with `X-Twilio-Signature`. Resend receipt callbacks use its Svix headers (`svix-id`, `svix-timestamp`, and `svix-signature`) and the stored `whsec_…` webhook secret.
 - Repeated receipt event IDs are ignored. A terminal failure tries the next recorded-consent channel; exhaustion opens a shared exception.
 - Reminder dispatch accepts one scheduled reminder ID and no client-supplied campaign copy. JSON API writes require `application/json`, accept at most 16 KB, and return structured errors with a correlatable request ID.
-- Signed-in clinics can export their own minimized workspace. Deletion requires the same clinic's organization ID as explicit confirmation.
-- The signed-in workspace requests checkout through this site, which returns only the Sociobot checkout URL. No payment provider is embedded.
+- Owners can export their clinic’s minimized workspace. Deletion waits seven days and can be cancelled during that time.
+- The clinic requests checkout through this site, which returns only the Sociobot checkout URL. No payment provider is embedded.
 
 ## Verify
 

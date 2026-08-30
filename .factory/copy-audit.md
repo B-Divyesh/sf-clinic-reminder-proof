@@ -1,6 +1,6 @@
 # Product copy audit
 
-Status: reviewed after repair 13 on 2026-08-29. Counts are whitespace-delimited; routes, prices, and hyphenated terms count as one word.
+Status: reviewed for M2 on 2026-08-30. Counts are whitespace-delimited; routes, prices, and hyphenated terms count as one word.
 
 ## First screen
 
@@ -78,7 +78,8 @@ Headings, inventory statements, and every prose sentence are included. Commands 
 | 8 | Advance the sample reminders and inspect their evidence. | Pass; F-1-4 |
 | 14 | Assign or resolve the sample exception, undo a resolution, and reset the sample clinic. | Pass; F-1-4 |
 | 8 | “Start for real” opens the managed clinic workflow. | Pass |
-| 21 | A clinic signs in through Sociobot Microsoft Entra, creates its workspace, connects a signed calendar feed, and configures approved messaging providers. | Pass; F-3-8 |
+| 11 | A clinic signs in through the shared Sociobot Microsoft Entra tenant. | Pass; `ciam-sign-in` |
+| 12 | Setup records its jurisdiction, retention choice, first location, and staff roles. | Pass; `durable-onboarding` |
 | 7 | Reminder Proof checks recorded consent before sending. | Pass; F-1-5 |
 | 14 | It records messaging-provider receipts and opens a shared exception when delivery proof is missing. | Pass; F-3-8 |
 | 3 | What is included | Pass; heading |
@@ -87,7 +88,8 @@ Headings, inventory statements, and every prose sentence are included. Commands 
 | 9 | It includes rate limits, health checks, and machine-readable metrics. | Pass; `rate-limit-policy`, `build-identity` |
 | 16 | A signed calendar/EMR connection stores each appointment once, even when it receives the same update twice. | Pass; `signed-calendar-intake`, F-3-7 |
 | 13 | Twilio SMS and approved WhatsApp dispatch, Resend email fallback, and signed receipt reconciliation. | Pass; registered messaging claims |
-| 17 | Shared exception assignment and resolution, clinic export/delete, and Sociobot-hosted subscription checkout at $79 per location each month. | Pass; registered managed claims |
+| 8 | Owner-only clinic export and a cancelable seven-day deletion window. | Pass; `data-export`, `account-deletion` |
+| 10 | Sociobot-hosted monthly plan checkout starts at $79 per location. | Pass; `subscription-price` |
 | 4 | Messaging-provider fees are separate. | Pass; F-3-8 |
 | 21 | The site includes pulse-ledger art, a favicon, a touch icon, a social card, and self-hosted Instrument Sans and Fragment Mono fonts. | Pass; `no-tracking`, F-3-1 |
 | 11 | Playwright claim tests that begin with a fresh demo browser context. | Pass |
@@ -97,11 +99,16 @@ Headings, inventory statements, and every prose sentence are included. Commands 
 | 2 | Run locally | Pass; heading |
 | 13 | Requirements: Node 22.12+, Rust stable with `rustfmt` and `clippy`, and Chromium for Playwright. | Pass |
 | 10 | The API requires no configuration and uses `PORT` (default `8080`). | Pass |
-| 18 | The single-replica SQLite writer runs below `DATA_DIR` (the image defaults to `/data`) instead of on an SMB mount. | Pass |
+| 14 | The single-replica SQLite writer runs below `DATA_DIR` instead of on an SMB mount. | Pass |
+| 16 | M2 adds reversible migrations for accounts, clinics, locations, roles, subscriptions, audit events, preferences, and exports. | Pass; `durable-onboarding` |
 | 12 | Each saved change writes a matching durable database and key under `DURABLE_DIR`. | Pass; F-1-7 |
 | 11 | A daily recovery copy is kept under `BACKUP_DIR` for 30 days. | Pass; F-1-7 |
 | 7 | Startup restores the durable pair before serving. | Pass |
 | 9 | Entra tenant settings may override the documented Sociobot defaults. | Pass |
+| 10 | Billing defaults to the live Sociobot pilot gateway and Dodo test mode. | Pass |
+| 9 | Set `SOCIOBOT_BILLING_BASE_URL` only to change the gateway. | Pass |
+| 12 | The Clinic, Practice, and Network choices are allowlisted on the server. | Pass; `subscription-price` |
+| 13 | The pilot product must be enabled by a factory operator before checkout can finish. | Pass; honest external dependency |
 | 18 | The production container pins the app to one replica so SQLite and demo-creation limits have one state owner. | Pass |
 | 12 | The container mounts separate durable and backup shares at `/durable` and `/backups`. | Pass; F-1-8 |
 | 6 | The application runs without root privileges. | Pass; F-1-8 |
@@ -116,7 +123,9 @@ Headings, inventory statements, and every prose sentence are included. Commands 
 | 14 | It checks the active revision, mounts, replica count, public identity, and six-request rate limit. | Pass; `rate-limit-policy`, `single-replica-durable-topology` |
 | 3 | Clinic integration contract | Pass; heading |
 | 8 | All clinic routes require an Entra bearer token. | Pass |
-| 13 | The stable `oid` claim owns the workspace; email is never an identity key. | Pass |
+| 13 | The stable `oid` claim links the user; email is never an identity key. | Pass; `ciam-sign-in` |
+| 9 | Owners control billing, exports, deletion, and staff roles. | Pass; M2 role boundary |
+| 8 | Active staff can read only their clinic. | Pass; `tenant-isolation` |
 | 7 | Create a signed calendar connector in `/app`. | Pass |
 | 10 | Post normalized appointment batches to `/api/v1/connectors/intake` with `X-Reminder-Timestamp` and `X-Reminder-Signature`. | Pass |
 | 7 | Sign the UTF-8 string `<timestamp>:<connector-id>:<appointment-count>` with HMAC-SHA256. | Pass |
@@ -129,9 +138,9 @@ Headings, inventory statements, and every prose sentence are included. Commands 
 | 13 | A terminal failure tries the next recorded-consent channel; exhaustion opens a shared exception. | Pass; `managed-provider-fallback-receipt` |
 | 12 | Reminder dispatch accepts one scheduled reminder ID and no client-supplied campaign copy. | Pass; `no-marketing-campaigns` |
 | 19 | JSON API writes require `application/json`, accept at most 16 KB, and return structured errors with a correlatable request ID. | Pass; `request-protection` |
-| 8 | Signed-in clinics can export their own minimized workspace. | Pass; `signed-in-export-delete` |
-| 10 | Deletion requires the same clinic's organization ID as explicit confirmation. | Pass; `signed-in-export-delete` |
-| 15 | The signed-in workspace requests checkout through this site, which returns only the Sociobot checkout URL. | Pass; `managed-billing-return` |
+| 8 | Owners can export their clinic’s minimized workspace. | Pass; `data-export` |
+| 11 | Deletion waits seven days and can be cancelled during that time. | Pass; `account-deletion` |
+| 14 | The clinic requests checkout through this site, which returns only the Sociobot checkout URL. | Pass; `managed-billing-return` |
 | 5 | No payment provider is embedded. | Pass; qualified term |
 | 1 | Verify | Pass; heading |
 | 11 | Every `@claim:<id>` Playwright test is runnable on its own, for example. | Pass |
@@ -176,7 +185,7 @@ No sentence exceeds 22 words. No banned word appears. Protocol names remain only
 
 Words: 12. Characters: 76. It starts with a verb, stays under 120 characters, and contains no banned word.
 
-## Claim mapping added or retained through review 3
+## Claim mapping added or retained through M2
 
 | Public promise | Claim test |
 | --- | --- |
@@ -190,3 +199,9 @@ Words: 12. Characters: 76. It starts with a verb, stays under 120 characters, an
 | Resend Svix verification and replay handling | `@claim:resend-receipt-verification` |
 | Messaging-provider credentials and destinations encrypted at rest | `@claim:managed-secret-encryption` |
 | Managed records reject clinical fields | `@claim:managed-data-minimisation` |
+| Shared Sociobot account sign-in | `@claim:ciam-sign-in` |
+| Organization and role isolation | `@claim:tenant-isolation` |
+| Durable clinic and location setup | `@claim:durable-onboarding` |
+| Clinic monthly price | `@claim:subscription-price` |
+| Owner clinic export | `@claim:data-export` |
+| Seven-day deletion recovery window | `@claim:account-deletion` |

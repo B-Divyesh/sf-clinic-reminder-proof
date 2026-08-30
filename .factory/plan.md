@@ -1,6 +1,6 @@
 # Reminder Proof venture plan
 
-Status: **M1 complete — review 1 findings repaired and verified in polish 1**
+Status: **M2 implemented and locally verified — independent review/polish pending**
 
 Product slug: `clinic-reminder-proof`
 
@@ -8,7 +8,7 @@ Artifact: `web-with-backend`
 
 Production URL: `https://clinic-reminder-proof.sociobot.in`
 
-Last updated: 2026-08-28
+Last updated: 2026-08-30
 
 This document is the delivery contract for Reminder Proof. A milestone builder must read this plan, `.factory/design.md`, every earlier handoff, and the latest review notes before changing product code. A milestone is complete only after its claims pass in a fresh demo sandbox and the milestone has passed review and polish.
 
@@ -104,10 +104,10 @@ Recruit five independent clinics across at least two jurisdictions. For two week
 ### Stack decision
 
 - **Web:** Svelte 5, Vite, strict TypeScript, platform CSS, and small headless utilities only when native controls are insufficient. The ledger and exception queue need reactive state, but not React’s ecosystem weight.
-- **API:** Rust 2021, axum, tokio, serde, tracing, tower-governor, and sqlx.
-- **Database:** PostgreSQL in hosted environments because organizations, locations, workers, and webhook processing share state. Tests use an isolated PostgreSQL database; SQLite is not used as a production substitute.
-- **Jobs:** a Tokio worker in the same deployable binary for the first release, using a PostgreSQL job table with `FOR UPDATE SKIP LOCKED`. Split the worker only after measured contention.
-- **Deployment:** one container on Azure Container Apps. Axum serves the hashed Vite build and `/api/*` from the same origin. A second worker replica can run with `PROCESS_ROLE=worker`; the default `PROCESS_ROLE=all` remains functional with only `PORT` set.
+- **API:** Rust 2021, axum, tokio, serde, tracing, tower-governor, and rusqlite.
+- **Database:** SQLite in the first hosted release, with one writer replica, normalized M2 account tables, foreign keys, encrypted sensitive values, and an encrypted application snapshot on separate Azure Files mounts. The factory provides only `PORT`, so the planned PostgreSQL service cannot be configured safely in this work order. Move to PostgreSQL before horizontal API or worker scaling.
+- **Jobs:** a Tokio worker in the same deployable binary for the first release, using atomic SQLite leases while one replica owns writes. Move leases to PostgreSQL with `FOR UPDATE SKIP LOCKED` before adding a worker replica.
+- **Deployment:** one container and exactly one replica on Azure Container Apps. Axum serves the hashed Vite build and `/api/*` from the same origin. The default process remains functional with only `PORT` set; checked-in production topology adds separate durable and backup mounts.
 - **Tests:** Vitest for pure UI/domain logic, Rust unit and integration tests for service boundaries, and Playwright 1.58.2 for every claim and browser journey.
 
 The root `npm` scripts are the product’s portable build contract. `npm test` runs frontend and Rust tests. `npm run build` produces the web app in `dist/` and a release API binary. No runtime CDN script or font is allowed.
@@ -130,10 +130,10 @@ packages/design-system/         shared CSS tokens and component contract
 services/api/                   axum API, static serving, worker entry point
 services/api/src/routes/        HTTP boundary by domain
 services/api/src/domain/        consent, policy, reminder state machines
-services/api/src/db/            sqlx repositories and tenant scope helpers
+services/api/src/clinic.rs      SQLite repositories and tenant/role helpers
 services/api/src/providers/     SMS, email, WhatsApp adapters
 services/api/src/jobs/          scheduler, dispatch, reconciliation, cleanup
-services/api/migrations/        reversible PostgreSQL migrations
+services/api/migrations/        reversible SQLite migrations
 tests/e2e/                      Playwright journeys and claim tests
 .factory/                       product, design, claims, demo, and handoffs
 dist/                           reproducible Vite output; never hand-edited
@@ -147,7 +147,7 @@ All writes accept an idempotency key, use JSON problem details for errors, and r
 
 ### Data model and ownership
 
-All mutable records use UUIDv7 IDs, `created_at`, `updated_at`, and an optimistic version where concurrent staff edits matter. Patient-facing times retain both UTC and the IANA timezone used to render them.
+Mutable records use random UUIDs, `created_at`, and `updated_at`; concurrent staff edits gain optimistic versions when M3 adds shared actions. Patient-facing times retain both UTC and the IANA timezone used to render them.
 
 | Entity | Important fields | Ownership and retention |
 | --- | --- | --- |
@@ -171,7 +171,7 @@ All mutable records use UUIDv7 IDs, `created_at`, `updated_at`, and an optimisti
 | `notification_preferences` | membership, digest and escalation choices | Staff operational email only; opt-in except required account/security mail. |
 | `export_jobs` | organization, requester, state, expiry, object reference | Generated on request, encrypted, signed short-lived download, deleted after 24 hours. |
 
-Tenant isolation is enforced in three layers: an authenticated request context, repository methods that require an `OrganizationId`, and PostgreSQL row-level security using a transaction-local tenant setting. Integration tests create two tenants and attempt reads and writes across every tenant-owned repository.
+Tenant isolation is enforced in three layers: an authenticated request context, repository methods that require an organization, and normalized membership checks on every account route. The deployment has one SQLite writer. Integration tests create two tenants and exercise owner and viewer boundaries. PostgreSQL row-level security remains the required migration before the service can scale beyond one replica.
 
 ### Authentication and authorization
 
@@ -202,7 +202,7 @@ No runtime AI feature is justified for M1–M6. The important decisions—consen
 
 ### Background jobs and failure handling
 
-The database job table stores kind, tenant, due time, attempt count, lease owner/expiry, idempotency key, and last safe error. Jobs are leased with `SKIP LOCKED`, heartbeated, retried with capped exponential backoff plus jitter, and moved to a dead-letter state after policy exhaustion. The scheduler uses a uniqueness constraint, so restarts cannot create duplicate reminders. Dispatch idempotency keys are stable across retries. A reconciliation job polls providers when webhooks are late. Cleanup deletes expired demo tenants, raw webhook payloads, and exports.
+The planned database job table stores kind, tenant, due time, attempt count, lease owner/expiry, idempotency key, and last safe error. SQLite jobs use an atomic lease update, capped exponential backoff, and a dead-letter state after policy exhaustion. The scheduler uses a uniqueness constraint, so restarts cannot create duplicate reminders. Dispatch idempotency keys are stable across retries. A reconciliation job polls providers when webhooks are late. Cleanup deletes expired demo tenants, raw webhook payloads, and exports.
 
 Every job transition emits a structured log and counter. A job failure that affects a reminder also opens or updates a visible exception; operations must not depend on log access to discover patient-impacting failures.
 
@@ -238,7 +238,7 @@ Rate limiting is mandatory on every server endpoint except `/health`, keyed by t
 - Encrypt transport, database volumes, provider credentials, patient destinations, and response bodies. Rotate data-encryption keys with versioned envelopes.
 - Default retention: proof metadata 12 months on Clinic, according to tier for paid extensions; reply bodies 30 days; raw provider payloads 7 days; demo tenants 24 hours; exports 24 hours. Clinics may shorten retention.
 - Record consent evidence and opt-outs longer where law requires, but pseudonymize destinations when no longer operationally needed.
-- Nightly encrypted PostgreSQL backups with 30-day retention, weekly restore test in non-production, documented RPO ≤24 hours and RTO ≤4 hours for launch.
+- Synchronous encrypted SQLite recovery snapshots plus daily copies with 30-day retention and a restore regression. The documented launch targets remain RPO ≤24 hours and RTO ≤4 hours.
 - Organization export includes locations, appointments with minimized patient references, consent history, reminder/attempt timelines, exceptions, and audit events in CSV/JSON. Account deletion is a confirmed, audited, delayed job with a seven-day recovery window unless legal retention applies.
 - Security headers: restrictive CSP, HSTS at ingress, `X-Content-Type-Options`, `Referrer-Policy`, frame denial, and permission policy. No analytics beyond an aggregate, privacy-respecting page view with no patient or tenant attributes.
 - Complete a threat model, subprocessor inventory, retention schedule, incident runbook, and BAA/DPA readiness checklist before live patient data. Do not market compliance as a certification.
@@ -365,7 +365,7 @@ The executable M1 contract is `.factory/claims.json`: `demo-isolation`, `sample-
 
 ### M2 — Accounts, durable clinic data, and subscriptions
 
-**Status:** implemented in repair 2 — Entra account, encrypted durable workspace, onboarding, and Sociobot checkout/verification
+**Status:** implemented and locally verified on 2026-08-30 — independent review/polish pending; pilot catalog enablement remains operator action
 
 **Outcome:** A clinic owner can sign in, create an isolated organization and location, complete safe onboarding, choose a monthly plan in Sociobot checkout, and return to durable account data.
 
@@ -379,9 +379,9 @@ The executable M1 contract is `.factory/claims.json`: `demo-isolation`, `sample-
 **Scope**
 
 - Add Entra CIAM PKCE sign-in with the exact tenant contract above. Confirm/register the production redirect URI and record operator action if it is pending.
-- Add reversible PostgreSQL migrations for users, organizations, memberships, locations, subscriptions, audit events, notification preferences, and export jobs; enable RLS and tenant-required repositories.
+- Add reversible SQLite migrations for users, organizations, memberships, locations, subscriptions, audit events, notification preferences, and export jobs. Require tenant and role context in every account query. This replaces the original PostgreSQL/RLS requirement for the factory’s single-replica, `PORT`-only deployment.
 - Add onboarding with jurisdiction, timezone, retention choice, staff roles, and an explicit statement that clinical notes must not be entered.
-- Register the three recurring plans in the Sociobot pilot catalog, implement same-origin checkout and return, verify entitlements server-side, and handle active, grace, past-due, cancelled, revoked, and gateway-unavailable states.
+- Wire the three recurring plan choices to the Sociobot pilot gateway, implement same-origin checkout and return, verify entitlements server-side, and handle active, grace, past-due, cancelled, revoked, and gateway-unavailable states. Pilot catalog enablement is an external operator action because this work order has no catalog administration credential.
 - Add organization export and delayed deletion. Keep the public demo operational and isolated.
 
 **Claims**
@@ -396,10 +396,10 @@ The executable M1 contract is `.factory/claims.json`: `demo-isolation`, `sample-
 **Tests**
 
 - Recorded OIDC/JWKS contract tests plus a staging Entra smoke test; invalid issuer, audience, tenant, signature, expiry, and `nbf` return 401 with the correct header.
-- Two-tenant API and repository tests for every tenant-owned table and role boundary.
+- Two-tenant API and repository tests for every tenant-owned M2 table and owner/viewer boundary.
 - Pilot billing fixtures for checkout tier allowlisting, active and revoked entitlement, duplicate return, gateway timeout, and daily verification cache. No live charge in CI.
 - Playwright onboarding, sign-out/in persistence, plan selection, export download, delete/cancel-delete, demo regression, keyboard, mobile, and axe tests.
-- Migration up/down test and backup/restore smoke with seeded tenant data.
+- SQLite migration up/down test and backup/restore smoke with seeded tenant data.
 
 **Definition of done**
 

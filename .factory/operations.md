@@ -25,6 +25,13 @@ database mutex is held, then atomically replaces the latest backup pair. The
 first mutation each UTC day also creates a dated recovery pair; the service
 automatically removes daily pairs older than 30 days.
 
+M2 account records use normalized tables in the same database. Migration
+`0002_accounts_subscriptions.up.sql` adds users, organizations, locations,
+memberships, subscriptions, audit events, notification preferences, and export
+jobs. Its matching down migration is exercised before every release. The
+encrypted workflow document remains separate so later reminder processing can
+change without weakening the account and role boundary.
+
 ## Backup and restore
 
 The latest application backup has an RPO of one successful workspace mutation,

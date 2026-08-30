@@ -2,7 +2,7 @@
 
 Direction: **translucent pulse ledger**
 
-Status: approved for M1 implementation
+Status: approved and applied through M2
 
 Last updated: 2026-08-28
 
@@ -215,10 +215,16 @@ A left step list shows Source, Consent, Channels, Policy, and Dry run. Each comp
 | `/privacy` | `Privacy — Reminder Proof` | How Reminder Proof handles data |
 | `/terms` | `Terms — Reminder Proof` | Terms for Reminder Proof |
 | `/404` | `Page not found — Reminder Proof` | Page not found |
+| `/sign-in` | `Sign in — Reminder Proof` | Sign in to manage a clinic |
+| `/onboarding/clinic` | `Clinic details — Reminder Proof` | Name your clinic workspace |
+| `/onboarding/location` | `Location setup — Reminder Proof` | Add your first location |
+| `/onboarding/staff` | `Staff setup — Reminder Proof` | Choose who can use this clinic |
 | `/app/ledger` | `Delivery ledger — Reminder Proof` | Delivery ledger for {date} |
 | `/app/exceptions` | `Exceptions — Reminder Proof` | Reminders that need a person |
 | `/app/setup/*` | `{Step} setup — Reminder Proof` | Set up {step} |
+| `/app/settings/members` | `Staff access — Reminder Proof` | Staff access |
 | `/app/settings/billing` | `Plan and billing — Reminder Proof` | Plan and billing |
+| `/app/settings/privacy` | `Clinic data controls — Reminder Proof` | Clinic data controls |
 
 Default description: “Track appointment reminder attempts, delivery evidence, safe fallbacks, and staff-owned exceptions without replacing your clinic calendar.” (147 characters.) Canonical and social metadata use the production origin. M1 must add a real 1200×630 social image derived from the ledger art, an SVG favicon, a 180 px touch icon, sitemap, robots, and per-route metadata.
 
