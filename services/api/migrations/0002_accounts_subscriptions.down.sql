@@ -1,0 +1,12 @@
+PRAGMA foreign_keys=OFF;
+DROP TABLE IF EXISTS export_jobs;
+DROP TABLE IF EXISTS notification_preferences;
+DROP TABLE IF EXISTS audit_events;
+DROP TABLE IF EXISTS subscriptions;
+DROP TABLE IF EXISTS memberships;
+DROP TABLE IF EXISTS locations;
+DROP TABLE IF EXISTS organizations;
+DROP TABLE IF EXISTS users;
+DELETE FROM schema_migrations WHERE version = 2;
+DROP TABLE IF EXISTS schema_migrations;
+PRAGMA foreign_keys=ON;

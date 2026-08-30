@@ -92,6 +92,15 @@ fn app_with_clinic_state(
             .finish()
             .expect("valid public API rate limit"),
     );
+    let billing_governor = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(120)
+            .burst_size(5)
+            .key_extractor(TrustedProxyIpExtractor)
+            .use_headers()
+            .finish()
+            .expect("valid billing API rate limit"),
+    );
     let api = Router::new()
         .route(
             "/v1/demo/workspaces",
@@ -108,8 +117,27 @@ fn app_with_clinic_state(
         .layer(RequestBodyLimitLayer::new(API_BODY_LIMIT))
         .layer(GovernorLayer::new(api_governor.clone()).error_handler(governor_error))
         .layer(middleware::from_fn(normalize_api_errors));
+    let billing_state = clinic_state.clone();
     let clinic_api = Router::new()
         .route("/v1/auth/config", get(clinic::auth_config))
+        .route("/v1/me", get(clinic::get_me))
+        .route(
+            "/v1/organizations",
+            get(clinic::list_organizations).post(clinic::onboard),
+        )
+        .route(
+            "/v1/locations",
+            get(clinic::list_locations).post(clinic::update_location),
+        )
+        .route(
+            "/v1/memberships",
+            get(clinic::list_memberships).post(clinic::add_membership),
+        )
+        .route("/v1/exports", get(clinic::export_workspace))
+        .route(
+            "/v1/account-deletion",
+            post(clinic::schedule_account_deletion).delete(clinic::cancel_account_deletion),
+        )
         .route(
             "/v1/clinic",
             get(clinic::get_workspace)
@@ -141,12 +169,18 @@ fn app_with_clinic_state(
             "/v1/providers/resend/{id}/receipts",
             post(clinic::resend_receipt),
         )
-        .route("/v1/billing/checkout", post(clinic::billing_checkout))
-        .route("/v1/billing/return", post(clinic::billing_return))
         .with_state(clinic_state)
         .layer(DefaultBodyLimit::max(API_BODY_LIMIT))
         .layer(RequestBodyLimitLayer::new(API_BODY_LIMIT))
         .layer(GovernorLayer::new(api_governor.clone()).error_handler(governor_error))
+        .layer(middleware::from_fn(normalize_api_errors));
+    let billing_api = Router::new()
+        .route("/v1/billing/checkout", post(clinic::billing_checkout))
+        .route("/v1/billing/return", post(clinic::billing_return))
+        .with_state(billing_state)
+        .layer(DefaultBodyLimit::max(API_BODY_LIMIT))
+        .layer(RequestBodyLimitLayer::new(API_BODY_LIMIT))
+        .layer(GovernorLayer::new(billing_governor).error_handler(governor_error))
         .layer(middleware::from_fn(normalize_api_errors));
     let operations = Router::new()
         .route("/metrics", get(metrics))
@@ -161,13 +195,21 @@ fn app_with_clinic_state(
         .merge(operations)
         .nest("/api", api)
         .nest("/api", clinic_api)
+        .nest("/api", billing_api)
         .route_service("/", spa.clone())
         .route_service("/demo", spa.clone())
         .route_service("/demo/reminders/{*path}", spa.clone())
         .route_service("/privacy", spa.clone())
         .route_service("/terms", spa.clone())
         .route_service("/start", spa.clone())
+        .route_service("/sign-in", spa.clone())
+        .route_service("/onboarding/clinic", spa.clone())
+        .route_service("/onboarding/location", spa.clone())
+        .route_service("/onboarding/staff", spa.clone())
         .route_service("/app", spa.clone())
+        .route_service("/app/settings/members", spa.clone())
+        .route_service("/app/settings/billing", spa.clone())
+        .route_service("/app/settings/privacy", spa.clone())
         .route_service("/auth/callback", spa.clone())
         .route_service("/404", spa.clone())
         .fallback_service(static_files)
@@ -423,6 +465,32 @@ mod tests {
                 .unwrap();
             if attempt < 5 {
                 assert_eq!(response.status(), StatusCode::OK);
+            } else {
+                assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+                assert!(response.headers().get(header::RETRY_AFTER).is_some());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn m2_billing_start_has_the_stricter_allowance() {
+        let application = test_app();
+        for attempt in 0..6 {
+            let response = application
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/v1/billing/checkout")
+                        .header("x-forwarded-for", "198.51.100.219")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(r#"{"tier":"clinic"}"#))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            if attempt < 5 {
+                assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
             } else {
                 assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
                 assert!(response.headers().get(header::RETRY_AFTER).is_some());

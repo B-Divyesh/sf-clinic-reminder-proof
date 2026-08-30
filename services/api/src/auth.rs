@@ -1,7 +1,7 @@
 use std::{
     env,
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
@@ -130,7 +130,17 @@ impl AuthService {
         let claims = decode::<Claims>(token, &decoding_key, &validation)
             .map_err(|_| AuthError::Invalid)?
             .claims;
-        if claims.tid != self.tenant_id || claims.iss != issuer {
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as usize;
+        if !claims_match_contract(
+            &claims,
+            &self.tenant_id,
+            &self.client_id,
+            &issuer,
+            current_time,
+        ) {
             return Err(AuthError::Invalid);
         }
         Ok(Identity { oid: claims.oid })
@@ -184,6 +194,30 @@ impl AuthService {
     }
 }
 
+fn claims_match_contract(
+    claims: &Claims,
+    tenant_id: &str,
+    client_id: &str,
+    issuer: &str,
+    current_time: usize,
+) -> bool {
+    let audience_matches = match &claims.aud {
+        serde_json::Value::String(value) => value == client_id,
+        serde_json::Value::Array(values) => {
+            values.iter().any(|value| value.as_str() == Some(client_id))
+        }
+        _ => false,
+    };
+    claims.tid == tenant_id
+        && claims.iss == issuer
+        && audience_matches
+        && claims.exp > current_time
+        && claims
+            .nbf
+            .is_some_and(|not_before| not_before <= current_time)
+        && !claims.oid.trim().is_empty()
+}
+
 #[derive(Serialize)]
 pub struct AuthConfig {
     pub tenant_id: String,
@@ -222,5 +256,96 @@ impl IntoResponse for AuthError {
             .headers_mut()
             .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
         response
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn valid_claims() -> Claims {
+        Claims {
+            oid: "11111111-1111-1111-1111-111111111111".to_owned(),
+            tid: DEFAULT_TENANT.to_owned(),
+            aud: serde_json::Value::String(DEFAULT_CLIENT.to_owned()),
+            iss: format!("https://{DEFAULT_SUBDOMAIN}.ciamlogin.com/{DEFAULT_TENANT}/v2.0"),
+            exp: 2_000,
+            nbf: Some(900),
+            name: Some("Fixture Owner".to_owned()),
+        }
+    }
+
+    #[test]
+    fn m2_claim_ciam_contract_rejects_wrong_registered_claims() {
+        let issuer = format!("https://{DEFAULT_SUBDOMAIN}.ciamlogin.com/{DEFAULT_TENANT}/v2.0");
+        let valid = valid_claims();
+        assert!(claims_match_contract(
+            &valid,
+            DEFAULT_TENANT,
+            DEFAULT_CLIENT,
+            &issuer,
+            1_000
+        ));
+
+        let mut wrong_issuer = valid_claims();
+        wrong_issuer.iss = "https://issuer.invalid/v2.0".to_owned();
+        assert!(!claims_match_contract(
+            &wrong_issuer,
+            DEFAULT_TENANT,
+            DEFAULT_CLIENT,
+            &issuer,
+            1_000
+        ));
+
+        let mut wrong_audience = valid_claims();
+        wrong_audience.aud = serde_json::Value::String("another-client".to_owned());
+        assert!(!claims_match_contract(
+            &wrong_audience,
+            DEFAULT_TENANT,
+            DEFAULT_CLIENT,
+            &issuer,
+            1_000
+        ));
+
+        let mut wrong_tenant = valid_claims();
+        wrong_tenant.tid = "another-tenant".to_owned();
+        assert!(!claims_match_contract(
+            &wrong_tenant,
+            DEFAULT_TENANT,
+            DEFAULT_CLIENT,
+            &issuer,
+            1_000
+        ));
+
+        let mut expired = valid_claims();
+        expired.exp = 999;
+        assert!(!claims_match_contract(
+            &expired,
+            DEFAULT_TENANT,
+            DEFAULT_CLIENT,
+            &issuer,
+            1_000
+        ));
+
+        let mut early = valid_claims();
+        early.nbf = Some(1_001);
+        assert!(!claims_match_contract(
+            &early,
+            DEFAULT_TENANT,
+            DEFAULT_CLIENT,
+            &issuer,
+            1_000
+        ));
+    }
+
+    #[test]
+    fn ciam_public_config_uses_the_shared_sociobot_tenant() {
+        let config = AuthService::from_env().public_config();
+        assert_eq!(config.tenant_id, DEFAULT_TENANT);
+        assert_eq!(config.client_id, DEFAULT_CLIENT);
+        assert_eq!(
+            config.authority,
+            format!("https://{DEFAULT_SUBDOMAIN}.ciamlogin.com/{DEFAULT_TENANT}/")
+        );
     }
 }

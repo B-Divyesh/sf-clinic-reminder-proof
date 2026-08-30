@@ -24,10 +24,10 @@ use axum::{
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use hmac::{Hmac, Mac};
 use rand::RngCore;
-use rusqlite::{params, Connection, MAIN_DB};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, MAIN_DB};
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{
@@ -53,12 +53,22 @@ struct ClinicStore {
     backup_dir: Arc<PathBuf>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ClinicWorkspace {
+    #[serde(default)]
+    owner_oid: String,
     pub organization_id: String,
     pub clinic_name: String,
     pub location_name: String,
     pub timezone: String,
+    #[serde(default = "default_jurisdiction")]
+    pub jurisdiction: String,
+    #[serde(default = "default_retention_days")]
+    pub retention_days: u32,
+    #[serde(default)]
+    pub members: Vec<ClinicMember>,
+    #[serde(default)]
+    pub deletion: Option<DeletionSchedule>,
     pub connector: Option<ConnectorPublic>,
     #[serde(default)]
     encrypted_connector_secret: Option<String>,
@@ -70,6 +80,52 @@ pub struct ClinicWorkspace {
     pub subscription: Subscription,
     #[serde(default)]
     pub audit: Vec<AuditEvent>,
+}
+
+impl Default for ClinicWorkspace {
+    fn default() -> Self {
+        Self {
+            owner_oid: String::new(),
+            organization_id: String::new(),
+            clinic_name: String::new(),
+            location_name: String::new(),
+            timezone: String::new(),
+            jurisdiction: default_jurisdiction(),
+            retention_days: default_retention_days(),
+            members: Vec::new(),
+            deletion: None,
+            connector: None,
+            encrypted_connector_secret: None,
+            provider_configs: Vec::new(),
+            reminders: Vec::new(),
+            subscription: Subscription::default(),
+            audit: Vec::new(),
+        }
+    }
+}
+
+fn default_jurisdiction() -> String {
+    "other".to_owned()
+}
+
+const fn default_retention_days() -> u32 {
+    365
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ClinicMember {
+    pub id: String,
+    pub user_oid: Option<String>,
+    pub display_name: String,
+    pub email: String,
+    pub role: String,
+    pub state: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DeletionSchedule {
+    pub scheduled_at: u64,
+    pub cancel_until: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -159,6 +215,32 @@ pub struct OnboardInput {
     clinic_name: String,
     location_name: String,
     timezone: String,
+    #[serde(default)]
+    jurisdiction: Option<String>,
+    #[serde(default)]
+    retention_days: Option<u32>,
+    #[serde(default)]
+    owner_name: Option<String>,
+    #[serde(default)]
+    staff: Vec<MemberInput>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemberInput {
+    #[serde(default)]
+    user_oid: Option<String>,
+    display_name: String,
+    #[serde(default)]
+    email: String,
+    role: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocationInput {
+    name: String,
+    timezone: String,
 }
 
 #[derive(Deserialize)]
@@ -234,11 +316,43 @@ pub struct BillingQuery {
 #[serde(deny_unknown_fields)]
 pub struct BillingReturnInput {
     license: String,
+    #[serde(default)]
+    tier: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct CheckoutResponse {
     checkout_url: String,
+    tier: String,
+}
+
+#[derive(Serialize)]
+pub struct MeResponse {
+    oid: String,
+    organization_id: Option<String>,
+    role: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct OrganizationSummary {
+    id: String,
+    name: String,
+    jurisdiction: String,
+    retention_days: u32,
+}
+
+#[derive(Serialize)]
+pub struct LocationSummary {
+    id: String,
+    organization_id: String,
+    name: String,
+    timezone: String,
+}
+
+#[derive(Serialize)]
+pub struct DeletionResponse {
+    status: &'static str,
+    cancel_until: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -263,6 +377,10 @@ pub struct WorkspaceResponse {
     clinic_name: String,
     location_name: String,
     timezone: String,
+    jurisdiction: String,
+    retention_days: u32,
+    members: Vec<ClinicMember>,
+    deletion: Option<DeletionSchedule>,
     connector: Option<ConnectorPublic>,
     providers: Vec<ProviderPublic>,
     reminders: Vec<ClinicReminder>,
@@ -302,6 +420,10 @@ impl From<ClinicWorkspace> for WorkspaceResponse {
             clinic_name: value.clinic_name,
             location_name: value.location_name,
             timezone: value.timezone,
+            jurisdiction: value.jurisdiction,
+            retention_days: value.retention_days,
+            members: value.members,
+            deletion: value.deletion,
             connector: value.connector,
             providers,
             reminders: value.reminders,
@@ -394,6 +516,11 @@ impl ClinicState {
         connection
             .execute_batch(include_str!("../migrations/0001_managed_clinic.sql"))
             .map_err(|error| format!("migrate clinic database: {error}"))?;
+        connection
+            .execute_batch(include_str!(
+                "../migrations/0002_accounts_subscriptions.up.sql"
+            ))
+            .map_err(|error| format!("migrate M2 account database: {error}"))?;
         tracing::info!(data_store = %dir.display(), data_key = if key_was_generated { "generated" } else { "persisted" }, entra_config = "defaults-or-environment", "managed clinic storage ready");
         Ok(Self {
             auth,
@@ -409,7 +536,8 @@ impl ClinicState {
                 .build()
                 .map_err(|error| error.to_string())?,
             billing_base_url: billing_base_url
-                .unwrap_or_else(|| "https://api.sociobot.in/api/v1".to_owned())
+                .or_else(|| env::var("SOCIOBOT_BILLING_BASE_URL").ok())
+                .unwrap_or_else(|| "https://pilot-api.sociobot.in/api/v1".to_owned())
                 .trim_end_matches('/')
                 .to_owned(),
             provider_fixture_base_url,
@@ -539,6 +667,63 @@ fn validate_text(value: &str, maximum: usize, field: &'static str) -> Result<(),
     Ok(())
 }
 
+fn validate_jurisdiction(value: &str) -> Result<(), ApiError> {
+    if matches!(value, "us" | "uk" | "eu" | "ca" | "au" | "other") {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "jurisdiction_invalid",
+            "Choose the clinic jurisdiction from the list.",
+        ))
+    }
+}
+
+fn validate_retention_days(value: u32) -> Result<(), ApiError> {
+    if matches!(value, 30 | 90 | 365) {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "retention_invalid",
+            "Choose 30, 90, or 365 days for reminder records.",
+        ))
+    }
+}
+
+fn validate_role(value: &str) -> Result<(), ApiError> {
+    if matches!(value, "manager" | "staff" | "viewer") {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "role_invalid",
+            "Choose manager, staff, or viewer for this person.",
+        ))
+    }
+}
+
+fn require_owner(
+    state: &ClinicState,
+    identity: &Identity,
+    workspace: &ClinicWorkspace,
+) -> Result<(), Response> {
+    let role = state
+        .store
+        .membership_role(&identity.oid, &workspace.organization_id)
+        .map_err(IntoResponse::into_response)?;
+    if role.as_deref() == Some("owner") || workspace.owner_oid == identity.oid {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "owner_required",
+            "Only a clinic owner can complete this action.",
+        )
+        .into_response())
+    }
+}
+
 impl ClinicStore {
     fn encrypt(&self, value: &str) -> Result<String, ApiError> {
         let mut nonce = [0_u8; 12];
@@ -567,17 +752,29 @@ impl ClinicStore {
 
     fn get(&self, oid: &str) -> Result<Option<ClinicWorkspace>, ApiError> {
         let connection = self.connection.lock().map_err(|_| internal())?;
+        purge_due_deletions(&connection)?;
         let mut statement = connection
-            .prepare("SELECT state_json FROM clinic_workspaces WHERE oid=?1")
+            .prepare(
+                "SELECT cw.oid,cw.state_json FROM clinic_workspaces cw
+                 WHERE cw.oid=?1 OR cw.organization_id=(
+                   SELECT organization_id FROM memberships
+                   WHERE user_oid=?1 AND state='active' LIMIT 1
+                 )
+                 ORDER BY CASE WHEN cw.oid=?1 THEN 0 ELSE 1 END LIMIT 1",
+            )
             .map_err(|_| internal())?;
         let mut rows = statement.query(params![oid]).map_err(|_| internal())?;
         let Some(row) = rows.next().map_err(|_| internal())? else {
             return Ok(None);
         };
-        let encrypted: String = row.get(0).map_err(|_| internal())?;
-        serde_json::from_str(&self.decrypt(&encrypted)?)
-            .map(Some)
-            .map_err(|_| internal())
+        let owner_oid: String = row.get(0).map_err(|_| internal())?;
+        let encrypted: String = row.get(1).map_err(|_| internal())?;
+        let mut workspace: ClinicWorkspace =
+            serde_json::from_str(&self.decrypt(&encrypted)?).map_err(|_| internal())?;
+        if workspace.owner_oid.is_empty() {
+            workspace.owner_oid = owner_oid;
+        }
+        Ok(Some(workspace))
     }
 
     fn by_connector(
@@ -626,13 +823,48 @@ impl ClinicStore {
     }
 
     fn save(&self, oid: &str, workspace: &ClinicWorkspace) -> Result<(), ApiError> {
-        let json = serde_json::to_string(workspace).map_err(|_| internal())?;
+        let mut workspace = workspace.clone();
+        if workspace.owner_oid.is_empty() {
+            workspace.owner_oid = oid.to_owned();
+        }
+        let json = serde_json::to_string(&workspace).map_err(|_| internal())?;
         let encrypted = self.encrypt(&json)?;
         let connector_id = workspace.connector.as_ref().map(|item| item.id.as_str());
-        let connection = self.connection.lock().map_err(|_| internal())?;
-        connection.execute("INSERT INTO clinic_workspaces(oid,organization_id,connector_id,state_json,updated_at) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(oid) DO UPDATE SET connector_id=excluded.connector_id,state_json=excluded.state_json,updated_at=excluded.updated_at", params![oid, workspace.organization_id, connector_id, encrypted, now()]).map_err(|_| internal())?;
+        let mut connection = self.connection.lock().map_err(|_| internal())?;
+        let transaction = connection.transaction().map_err(|_| internal())?;
+        transaction.execute("INSERT INTO clinic_workspaces(oid,organization_id,connector_id,state_json,updated_at) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(organization_id) DO UPDATE SET connector_id=excluded.connector_id,state_json=excluded.state_json,updated_at=excluded.updated_at", params![workspace.owner_oid, workspace.organization_id, connector_id, encrypted, now()]).map_err(|_| internal())?;
+        sync_account_records(&transaction, &workspace)?;
+        transaction.commit().map_err(|_| internal())?;
         self.backup_locked(&connection)?;
         Ok(())
+    }
+
+    fn membership_role(
+        &self,
+        oid: &str,
+        organization_id: &str,
+    ) -> Result<Option<String>, ApiError> {
+        self.connection
+            .lock()
+            .map_err(|_| internal())?
+            .query_row(
+                "SELECT role FROM memberships WHERE organization_id=?1 AND user_oid=?2 AND state='active'",
+                params![organization_id, oid],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| internal())
+    }
+
+    fn record_export(&self, oid: &str, organization_id: &str) -> Result<(), ApiError> {
+        let connection = self.connection.lock().map_err(|_| internal())?;
+        connection
+            .execute(
+                "INSERT INTO export_jobs(id,organization_id,requester_oid,state,created_at,expires_at) VALUES(?1,?2,?3,'ready',?4,?5)",
+                params![Uuid::new_v4().to_string(), organization_id, oid, now(), now() + 86_400],
+            )
+            .map_err(|_| internal())?;
+        self.backup_locked(&connection)
     }
 
     fn backup_locked(&self, connection: &Connection) -> Result<(), ApiError> {
@@ -692,11 +924,181 @@ impl ClinicStore {
 
     fn delete(&self, oid: &str) -> Result<(), ApiError> {
         let connection = self.connection.lock().map_err(|_| internal())?;
+        let organization_id = connection
+            .query_row(
+                "SELECT organization_id FROM clinic_workspaces WHERE oid=?1",
+                params![oid],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|_| internal())?;
         connection
             .execute("DELETE FROM clinic_workspaces WHERE oid=?1", params![oid])
             .map_err(|_| internal())?;
+        if let Some(organization_id) = organization_id {
+            connection
+                .execute(
+                    "DELETE FROM organizations WHERE id=?1",
+                    params![organization_id],
+                )
+                .map_err(|_| internal())?;
+        }
         self.backup_locked(&connection)
     }
+}
+
+fn sync_account_records(
+    transaction: &Transaction<'_>,
+    workspace: &ClinicWorkspace,
+) -> Result<(), ApiError> {
+    let timestamp = now();
+    let owner_name = workspace
+        .members
+        .iter()
+        .find(|member| member.role == "owner")
+        .map(|member| member.display_name.as_str())
+        .unwrap_or("Clinic owner");
+    transaction
+        .execute(
+            "INSERT INTO users(oid,display_name,last_sign_in) VALUES(?1,?2,?3)
+             ON CONFLICT(oid) DO UPDATE SET display_name=excluded.display_name,last_sign_in=excluded.last_sign_in",
+            params![workspace.owner_oid, owner_name, timestamp],
+        )
+        .map_err(|_| internal())?;
+    transaction
+        .execute(
+            "INSERT INTO organizations(id,owner_oid,display_name,jurisdiction,retention_days,deletion_scheduled_at,deletion_cancel_until,created_at,updated_at)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8)
+             ON CONFLICT(id) DO UPDATE SET display_name=excluded.display_name,jurisdiction=excluded.jurisdiction,
+               retention_days=excluded.retention_days,deletion_scheduled_at=excluded.deletion_scheduled_at,
+               deletion_cancel_until=excluded.deletion_cancel_until,updated_at=excluded.updated_at",
+            params![
+                workspace.organization_id,
+                workspace.owner_oid,
+                workspace.clinic_name,
+                workspace.jurisdiction,
+                workspace.retention_days,
+                workspace.deletion.as_ref().map(|item| item.scheduled_at),
+                workspace.deletion.as_ref().map(|item| item.cancel_until),
+                timestamp
+            ],
+        )
+        .map_err(|_| internal())?;
+    let location_id = format!("location:{}", workspace.organization_id);
+    transaction
+        .execute(
+            "INSERT INTO locations(id,organization_id,name,timezone,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?5)
+             ON CONFLICT(id) DO UPDATE SET name=excluded.name,timezone=excluded.timezone,updated_at=excluded.updated_at",
+            params![location_id, workspace.organization_id, workspace.location_name, workspace.timezone, timestamp],
+        )
+        .map_err(|_| internal())?;
+
+    let owner_membership_id = format!("membership:{}:owner", workspace.organization_id);
+    transaction
+        .execute(
+            "INSERT INTO memberships(id,organization_id,user_oid,display_name,email,role,state,created_at,updated_at)
+             VALUES(?1,?2,?3,?4,'','owner','active',?5,?5)
+             ON CONFLICT(id) DO UPDATE SET user_oid=excluded.user_oid,display_name=excluded.display_name,updated_at=excluded.updated_at",
+            params![owner_membership_id, workspace.organization_id, workspace.owner_oid, owner_name, timestamp],
+        )
+        .map_err(|_| internal())?;
+    transaction
+        .execute(
+            "INSERT INTO notification_preferences(membership_id,digest_enabled,exception_email,updated_at)
+             VALUES(?1,0,0,?2) ON CONFLICT(membership_id) DO NOTHING",
+            params![owner_membership_id, timestamp],
+        )
+        .map_err(|_| internal())?;
+
+    for member in &workspace.members {
+        if member.role == "owner" {
+            continue;
+        }
+        if let Some(user_oid) = member.user_oid.as_deref() {
+            transaction
+                .execute(
+                    "INSERT INTO users(oid,display_name,last_sign_in) VALUES(?1,?2,?3)
+                     ON CONFLICT(oid) DO UPDATE SET display_name=excluded.display_name",
+                    params![user_oid, member.display_name, timestamp],
+                )
+                .map_err(|_| internal())?;
+        }
+        transaction
+            .execute(
+                "INSERT INTO memberships(id,organization_id,user_oid,display_name,email,role,state,created_at,updated_at)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8)
+                 ON CONFLICT(id) DO UPDATE SET user_oid=excluded.user_oid,display_name=excluded.display_name,
+                   email=excluded.email,role=excluded.role,state=excluded.state,updated_at=excluded.updated_at",
+                params![member.id, workspace.organization_id, member.user_oid, member.display_name, member.email, member.role, member.state, timestamp],
+            )
+            .map_err(|_| internal())?;
+    }
+
+    let entitlement_hash = workspace
+        .subscription
+        .encrypted_entitlement
+        .as_deref()
+        .map(|value| format!("{:x}", Sha256::digest(value.as_bytes())));
+    transaction
+        .execute(
+            "INSERT INTO subscriptions(id,organization_id,entitlement_hash,tier,status,checked_at,expires_at,updated_at)
+             VALUES(?1,?2,?3,?4,?5,?6,NULL,?7)
+             ON CONFLICT(organization_id) DO UPDATE SET entitlement_hash=excluded.entitlement_hash,tier=excluded.tier,
+               status=excluded.status,checked_at=excluded.checked_at,updated_at=excluded.updated_at",
+            params![
+                format!("subscription:{}", workspace.organization_id),
+                workspace.organization_id,
+                entitlement_hash,
+                workspace.subscription.tier,
+                workspace.subscription.status.as_deref().unwrap_or("none"),
+                workspace.subscription.checked_at,
+                timestamp
+            ],
+        )
+        .map_err(|_| internal())?;
+
+    for event in &workspace.audit {
+        let id_source = format!(
+            "{}:{}:{}:{}:{}",
+            workspace.organization_id, event.at, event.actor, event.action, event.target
+        );
+        let event_id = format!("{:x}", Sha256::digest(id_source.as_bytes()));
+        transaction
+            .execute(
+                "INSERT OR IGNORE INTO audit_events(id,organization_id,actor_oid,action,target,occurred_at)
+                 VALUES(?1,?2,?3,?4,?5,?6)",
+                params![event_id, workspace.organization_id, event.actor, event.action, event.target, event.at],
+            )
+            .map_err(|_| internal())?;
+    }
+    Ok(())
+}
+
+fn purge_due_deletions(connection: &Connection) -> Result<(), ApiError> {
+    let mut statement = connection
+        .prepare("SELECT id FROM organizations WHERE deletion_cancel_until IS NOT NULL AND deletion_cancel_until<=?1")
+        .map_err(|_| internal())?;
+    let due = statement
+        .query_map(params![now()], |row| row.get::<_, String>(0))
+        .map_err(|_| internal())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| internal())?;
+    drop(statement);
+    for organization_id in due {
+        connection
+            .execute(
+                "DELETE FROM clinic_workspaces WHERE organization_id=?1",
+                params![organization_id],
+            )
+            .map_err(|_| internal())?;
+        connection
+            .execute(
+                "DELETE FROM organizations WHERE id=?1",
+                params![organization_id],
+            )
+            .map_err(|_| internal())?;
+    }
+    Ok(())
 }
 
 fn internal() -> ApiError {
@@ -724,6 +1126,168 @@ async fn identity(state: &ClinicState, headers: &HeaderMap) -> Result<Identity, 
 
 pub async fn auth_config(State(state): State<ClinicState>) -> Json<AuthConfig> {
     Json(state.auth.public_config())
+}
+
+pub async fn get_me(
+    State(state): State<ClinicState>,
+    headers: HeaderMap,
+) -> Result<Json<MeResponse>, Response> {
+    let identity = identity(&state, &headers).await?;
+    let workspace = state
+        .store
+        .get(&identity.oid)
+        .map_err(IntoResponse::into_response)?;
+    let organization_id = workspace
+        .as_ref()
+        .map(|workspace| workspace.organization_id.clone());
+    let role = if let Some(workspace) = workspace.as_ref() {
+        state
+            .store
+            .membership_role(&identity.oid, &workspace.organization_id)
+            .map_err(IntoResponse::into_response)?
+    } else {
+        None
+    };
+    Ok(Json(MeResponse {
+        oid: identity.oid,
+        organization_id,
+        role,
+    }))
+}
+
+pub async fn list_organizations(
+    State(state): State<ClinicState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<OrganizationSummary>>, Response> {
+    let identity = identity(&state, &headers).await?;
+    let organizations = state
+        .store
+        .get(&identity.oid)
+        .map_err(IntoResponse::into_response)?
+        .into_iter()
+        .map(|workspace| OrganizationSummary {
+            id: workspace.organization_id,
+            name: workspace.clinic_name,
+            jurisdiction: workspace.jurisdiction,
+            retention_days: workspace.retention_days,
+        })
+        .collect();
+    Ok(Json(organizations))
+}
+
+pub async fn list_locations(
+    State(state): State<ClinicState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<LocationSummary>>, Response> {
+    let identity = identity(&state, &headers).await?;
+    let workspace = state
+        .store
+        .get(&identity.oid)
+        .map_err(IntoResponse::into_response)?
+        .ok_or_else(|| missing().into_response())?;
+    Ok(Json(vec![LocationSummary {
+        id: format!("location:{}", workspace.organization_id),
+        organization_id: workspace.organization_id,
+        name: workspace.location_name,
+        timezone: workspace.timezone,
+    }]))
+}
+
+pub async fn update_location(
+    State(state): State<ClinicState>,
+    headers: HeaderMap,
+    Json(input): Json<LocationInput>,
+) -> Result<Json<WorkspaceResponse>, Response> {
+    let identity = identity(&state, &headers).await?;
+    let mut workspace = state
+        .store
+        .get(&identity.oid)
+        .map_err(IntoResponse::into_response)?
+        .ok_or_else(|| missing().into_response())?;
+    require_owner(&state, &identity, &workspace)?;
+    validate_text(
+        &input.name,
+        100,
+        "Enter a location name up to 100 characters.",
+    )
+    .map_err(IntoResponse::into_response)?;
+    validate_text(
+        &input.timezone,
+        64,
+        "Enter an IANA timezone such as Europe/London.",
+    )
+    .map_err(IntoResponse::into_response)?;
+    workspace.location_name = input.name.trim().to_owned();
+    workspace.timezone = input.timezone.trim().to_owned();
+    workspace.audit.push(AuditEvent {
+        at: now(),
+        actor: identity.oid.clone(),
+        action: "location.saved".to_owned(),
+        target: workspace.organization_id.clone(),
+    });
+    state
+        .store
+        .save(&identity.oid, &workspace)
+        .map_err(IntoResponse::into_response)?;
+    Ok(Json(workspace.into()))
+}
+
+pub async fn list_memberships(
+    State(state): State<ClinicState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ClinicMember>>, Response> {
+    let identity = identity(&state, &headers).await?;
+    let workspace = state
+        .store
+        .get(&identity.oid)
+        .map_err(IntoResponse::into_response)?
+        .ok_or_else(|| missing().into_response())?;
+    Ok(Json(workspace.members))
+}
+
+pub async fn add_membership(
+    State(state): State<ClinicState>,
+    headers: HeaderMap,
+    Json(input): Json<MemberInput>,
+) -> Result<(StatusCode, Json<ClinicMember>), Response> {
+    let identity = identity(&state, &headers).await?;
+    let mut workspace = state
+        .store
+        .get(&identity.oid)
+        .map_err(IntoResponse::into_response)?
+        .ok_or_else(|| missing().into_response())?;
+    require_owner(&state, &identity, &workspace)?;
+    validate_text(
+        &input.display_name,
+        100,
+        "Enter a staff name up to 100 characters.",
+    )
+    .map_err(IntoResponse::into_response)?;
+    validate_role(&input.role).map_err(IntoResponse::into_response)?;
+    let member = ClinicMember {
+        id: Uuid::new_v4().to_string(),
+        state: if input.user_oid.is_some() {
+            "active".to_owned()
+        } else {
+            "pending".to_owned()
+        },
+        user_oid: input.user_oid,
+        display_name: input.display_name.trim().to_owned(),
+        email: input.email.trim().to_owned(),
+        role: input.role,
+    };
+    workspace.members.push(member.clone());
+    workspace.audit.push(AuditEvent {
+        at: now(),
+        actor: identity.oid.clone(),
+        action: "membership.created".to_owned(),
+        target: member.id.clone(),
+    });
+    state
+        .store
+        .save(&identity.oid, &workspace)
+        .map_err(IntoResponse::into_response)?;
+    Ok((StatusCode::CREATED, Json(member)))
 }
 
 pub async fn get_workspace(
@@ -763,17 +1327,72 @@ pub async fn onboard(
         "Enter an IANA timezone such as Europe/London.",
     )
     .map_err(IntoResponse::into_response)?;
+    let jurisdiction = input.jurisdiction.unwrap_or_else(default_jurisdiction);
+    let retention_days = input.retention_days.unwrap_or_else(default_retention_days);
+    validate_jurisdiction(&jurisdiction).map_err(IntoResponse::into_response)?;
+    validate_retention_days(retention_days).map_err(IntoResponse::into_response)?;
+    for member in &input.staff {
+        validate_text(
+            &member.display_name,
+            100,
+            "Enter each staff name using 100 characters or fewer.",
+        )
+        .map_err(IntoResponse::into_response)?;
+        if !member.email.is_empty() {
+            validate_text(
+                &member.email,
+                254,
+                "Enter each staff email using 254 characters or fewer.",
+            )
+            .map_err(IntoResponse::into_response)?;
+        }
+        validate_role(&member.role).map_err(IntoResponse::into_response)?;
+    }
     let mut workspace = state
         .store
         .get(&identity.oid)
         .map_err(IntoResponse::into_response)?
         .unwrap_or_else(|| ClinicWorkspace {
+            owner_oid: identity.oid.clone(),
             organization_id: Uuid::new_v4().to_string(),
             ..Default::default()
         });
+    if !workspace.owner_oid.is_empty() && workspace.owner_oid != identity.oid {
+        require_owner(&state, &identity, &workspace)?;
+    }
     workspace.clinic_name = input.clinic_name.trim().to_owned();
     workspace.location_name = input.location_name.trim().to_owned();
     workspace.timezone = input.timezone.trim().to_owned();
+    workspace.jurisdiction = jurisdiction;
+    workspace.retention_days = retention_days;
+    let owner_name = input
+        .owner_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Clinic owner")
+        .to_owned();
+    let mut members = vec![ClinicMember {
+        id: format!("membership:{}:owner", workspace.organization_id),
+        user_oid: Some(workspace.owner_oid.clone()),
+        display_name: owner_name,
+        email: String::new(),
+        role: "owner".to_owned(),
+        state: "active".to_owned(),
+    }];
+    members.extend(input.staff.into_iter().map(|member| ClinicMember {
+        id: Uuid::new_v4().to_string(),
+        state: if member.user_oid.is_some() {
+            "active".to_owned()
+        } else {
+            "pending".to_owned()
+        },
+        user_oid: member.user_oid,
+        display_name: member.display_name.trim().to_owned(),
+        email: member.email.trim().to_owned(),
+        role: member.role,
+    }));
+    workspace.members = members;
     workspace.audit.push(AuditEvent {
         at: now(),
         actor: identity.oid.clone(),
@@ -1984,12 +2603,89 @@ pub async fn export_workspace(
         .get(&identity.oid)
         .map_err(IntoResponse::into_response)?
         .ok_or_else(|| missing().into_response())?;
+    require_owner(&state, &identity, &workspace)?;
+    state
+        .store
+        .record_export(&identity.oid, &workspace.organization_id)
+        .map_err(IntoResponse::into_response)?;
     let mut response = Json(WorkspaceResponse::from(workspace)).into_response();
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
         HeaderValue::from_static("attachment; filename=reminder-proof-export.json"),
     );
     Ok(response)
+}
+
+pub async fn schedule_account_deletion(
+    State(state): State<ClinicState>,
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<DeletionResponse>), Response> {
+    let identity = identity(&state, &headers).await?;
+    let mut workspace = state
+        .store
+        .get(&identity.oid)
+        .map_err(IntoResponse::into_response)?
+        .ok_or_else(|| missing().into_response())?;
+    require_owner(&state, &identity, &workspace)?;
+    let scheduled_at = now();
+    let cancel_until = scheduled_at + 7 * 86_400;
+    workspace.deletion = Some(DeletionSchedule {
+        scheduled_at,
+        cancel_until,
+    });
+    workspace.audit.push(AuditEvent {
+        at: scheduled_at,
+        actor: identity.oid.clone(),
+        action: "organization.deletion_scheduled".to_owned(),
+        target: workspace.organization_id.clone(),
+    });
+    state
+        .store
+        .save(&identity.oid, &workspace)
+        .map_err(IntoResponse::into_response)?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(DeletionResponse {
+            status: "scheduled",
+            cancel_until: Some(cancel_until),
+        }),
+    ))
+}
+
+pub async fn cancel_account_deletion(
+    State(state): State<ClinicState>,
+    headers: HeaderMap,
+) -> Result<Json<DeletionResponse>, Response> {
+    let identity = identity(&state, &headers).await?;
+    let mut workspace = state
+        .store
+        .get(&identity.oid)
+        .map_err(IntoResponse::into_response)?
+        .ok_or_else(|| missing().into_response())?;
+    require_owner(&state, &identity, &workspace)?;
+    if workspace.deletion.is_none() {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "deletion_not_scheduled",
+            "This clinic does not have a scheduled deletion.",
+        )
+        .into_response());
+    }
+    workspace.deletion = None;
+    workspace.audit.push(AuditEvent {
+        at: now(),
+        actor: identity.oid.clone(),
+        action: "organization.deletion_cancelled".to_owned(),
+        target: workspace.organization_id.clone(),
+    });
+    state
+        .store
+        .save(&identity.oid, &workspace)
+        .map_err(IntoResponse::into_response)?;
+    Ok(Json(DeletionResponse {
+        status: "cancelled",
+        cancel_until: None,
+    }))
 }
 
 pub async fn delete_workspace(
@@ -2002,6 +2698,7 @@ pub async fn delete_workspace(
         .get(&identity.oid)
         .map_err(IntoResponse::into_response)?
         .ok_or_else(|| missing().into_response())?;
+    require_owner(&state, &identity, &workspace)?;
     if headers
         .get("x-confirm-delete")
         .and_then(|value| value.to_str().ok())
@@ -2032,17 +2729,19 @@ pub async fn billing_checkout(
         .get(&identity.oid)
         .map_err(IntoResponse::into_response)?
         .ok_or_else(|| missing().into_response())?;
-    if query.tier != "clinic" {
+    require_owner(&state, &identity, &workspace)?;
+    if !matches!(query.tier.as_str(), "clinic" | "practice" | "network") {
         return Err(ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "tier_invalid",
-            "The available checkout is the Clinic plan.",
+            "Choose the Clinic, Practice, or Network plan.",
         )
         .into_response());
     }
     let url = format!(
-        "{}?tier=clinic&return_url=https%3A%2F%2Fclinic-reminder-proof.sociobot.in%2Fapp&organization_id={}",
+        "{}?tier={}&return_url=https%3A%2F%2Fclinic-reminder-proof.sociobot.in%2Fapp%2Fsettings%2Fbilling&organization_id={}",
         billing_product_url(&state, "checkout"),
+        query.tier,
         workspace.organization_id
     );
     let probe = reqwest::Client::builder()
@@ -2069,7 +2768,10 @@ pub async fn billing_checkout(
         )
         .into_response());
     }
-    Ok(Json(CheckoutResponse { checkout_url: url }))
+    Ok(Json(CheckoutResponse {
+        checkout_url: url,
+        tier: query.tier,
+    }))
 }
 
 pub async fn billing_return(
@@ -2087,6 +2789,12 @@ pub async fn billing_return(
         )
         .into_response());
     }
+    let mut workspace = state
+        .store
+        .get(&identity.oid)
+        .map_err(IntoResponse::into_response)?
+        .ok_or_else(|| missing().into_response())?;
+    require_owner(&state, &identity, &workspace)?;
     let response = state
         .client
         .get(billing_product_url(&state, "verify"))
@@ -2110,6 +2818,17 @@ pub async fn billing_return(
         .into_response()
     })?;
     if verdict.get("valid").and_then(|value| value.as_bool()) != Some(true) {
+        let status = match verdict.get("reason").and_then(|value| value.as_str()) {
+            Some("revoked") | Some("wrong_product") => "revoked",
+            Some("expired") => "cancelled",
+            _ => "past_due",
+        };
+        workspace.subscription.status = Some(status.to_owned());
+        workspace.subscription.checked_at = Some(now());
+        state
+            .store
+            .save(&identity.oid, &workspace)
+            .map_err(IntoResponse::into_response)?;
         return Err(ApiError::new(
             StatusCode::PAYMENT_REQUIRED,
             "subscription_inactive",
@@ -2117,13 +2836,17 @@ pub async fn billing_return(
         )
         .into_response());
     }
-    let mut workspace = state
-        .store
-        .get(&identity.oid)
-        .map_err(IntoResponse::into_response)?
-        .ok_or_else(|| missing().into_response())?;
+    let tier = input.tier.unwrap_or_else(|| "clinic".to_owned());
+    if !matches!(tier.as_str(), "clinic" | "practice" | "network") {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "tier_invalid",
+            "Choose the Clinic, Practice, or Network plan.",
+        )
+        .into_response());
+    }
     workspace.subscription = Subscription {
-        tier: Some("clinic".to_owned()),
+        tier: Some(tier),
         status: Some("active".to_owned()),
         checked_at: Some(now()),
         encrypted_entitlement: Some(
@@ -3356,33 +4079,37 @@ mod tests {
         };
         state.store.save("fixture-owner", &workspace).unwrap();
 
-        let checkout = billing_checkout(
-            State(state.clone()),
-            {
-                let mut headers = HeaderMap::new();
-                headers.insert(
-                    header::AUTHORIZATION,
-                    HeaderValue::from_static("Bearer test:fixture-owner"),
-                );
-                headers
-            },
-            Json(BillingQuery {
-                tier: "clinic".to_owned(),
-            }),
-        )
-        .await
-        .unwrap()
-        .0;
-        assert!(checkout.checkout_url.starts_with(&fixture));
-        let response = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .unwrap()
-            .get(&checkout.checkout_url)
-            .send()
+        for tier in ["clinic", "practice", "network"] {
+            let checkout = billing_checkout(
+                State(state.clone()),
+                {
+                    let mut headers = HeaderMap::new();
+                    headers.insert(
+                        header::AUTHORIZATION,
+                        HeaderValue::from_static("Bearer test:fixture-owner"),
+                    );
+                    headers
+                },
+                Json(BillingQuery {
+                    tier: tier.to_owned(),
+                }),
+            )
             .await
-            .unwrap();
-        assert_eq!(response.status(), reqwest::StatusCode::SEE_OTHER);
+            .unwrap()
+            .0;
+            assert!(checkout.checkout_url.starts_with(&fixture));
+            assert_eq!(checkout.tier, tier);
+            assert!(checkout.checkout_url.contains(&format!("tier={tier}")));
+            let response = reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .unwrap()
+                .get(&checkout.checkout_url)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), reqwest::StatusCode::SEE_OTHER);
+        }
         let returned = billing_return(
             State(state.clone()),
             {
@@ -3395,14 +4122,295 @@ mod tests {
             },
             Json(BillingReturnInput {
                 license: "fixture-license-token-1234".to_owned(),
+                tier: Some("practice".to_owned()),
             }),
         )
         .await
         .unwrap()
         .0;
         assert_eq!(returned.subscription.status.as_deref(), Some("active"));
+        assert_eq!(returned.subscription.tier.as_deref(), Some("practice"));
+        let duplicate = billing_return(
+            State(state.clone()),
+            {
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    header::AUTHORIZATION,
+                    HeaderValue::from_static("Bearer test:fixture-owner"),
+                );
+                headers
+            },
+            Json(BillingReturnInput {
+                license: "fixture-license-token-1234".to_owned(),
+                tier: Some("practice".to_owned()),
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(duplicate.subscription.status.as_deref(), Some("active"));
+        let subscriptions: i64 = state
+            .store
+            .connection
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM subscriptions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(subscriptions, 1);
+        let mut cached = state.store.get("fixture-owner").unwrap().unwrap();
+        let database = fs::read(path.join("clinic-data.sqlite3")).unwrap();
+        assert!(!database
+            .windows("fixture-license-token-1234".len())
+            .any(|window| window == b"fixture-license-token-1234"));
 
         fixture_task.abort();
+        ensure_active_subscription(&state, &mut cached)
+            .await
+            .unwrap();
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn m2_claim_reversible_account_migration_round_trips() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(include_str!("../migrations/0001_managed_clinic.sql"))
+            .unwrap();
+        connection
+            .execute_batch(include_str!(
+                "../migrations/0002_accounts_subscriptions.up.sql"
+            ))
+            .unwrap();
+        let applied: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version=2",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(applied, 1);
+        connection
+            .execute_batch(include_str!(
+                "../migrations/0002_accounts_subscriptions.down.sql"
+            ))
+            .unwrap();
+        let removed: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='organizations'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(removed, 0);
+        connection
+            .execute_batch(include_str!(
+                "../migrations/0002_accounts_subscriptions.up.sql"
+            ))
+            .unwrap();
+        let restored: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='subscriptions'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(restored, 1);
+    }
+
+    #[tokio::test]
+    async fn m2_claim_tenant_roles_and_onboarding_survive_restart() {
+        let path = std::env::temp_dir().join(format!("reminder-proof-m2-{}", Uuid::new_v4()));
+        let state = ClinicState::for_tests(path.clone()).unwrap();
+        let application = crate::app_with_clinic_state("m2", "../../dist", state.clone());
+        let created = application
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/organizations")
+                    .header(header::AUTHORIZATION, "Bearer test:owner-a")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({
+                            "clinic_name":"North Street Dental",
+                            "location_name":"Main desk",
+                            "timezone":"Europe/London",
+                            "jurisdiction":"uk",
+                            "retention_days":90,
+                            "owner_name":"Morgan Lee",
+                            "staff":[{"user_oid":"viewer-a","display_name":"Sam Rivera","email":"sam@example.test","role":"viewer"}]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let body = created.into_body().collect().await.unwrap().to_bytes();
+        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(created["jurisdiction"], "uk");
+        assert_eq!(created["retention_days"], 90);
+        assert_eq!(created["members"].as_array().unwrap().len(), 2);
+
+        let viewer_read = application
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/me")
+                    .header(header::AUTHORIZATION, "Bearer test:viewer-a")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(viewer_read.status(), StatusCode::OK);
+        let body = viewer_read.into_body().collect().await.unwrap().to_bytes();
+        let viewer: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(viewer["role"], "viewer");
+
+        let forbidden_export = application
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/exports")
+                    .header(header::AUTHORIZATION, "Bearer test:viewer-a")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(forbidden_export.status(), StatusCode::FORBIDDEN);
+        let other_tenant = application
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/organizations")
+                    .header(header::AUTHORIZATION, "Bearer test:owner-b")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = other_tenant.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!([])
+        );
+
+        drop(state);
+        let reopened = ClinicState::for_tests(path.clone()).unwrap();
+        let restored = reopened.store.get("owner-a").unwrap().unwrap();
+        assert_eq!(restored.clinic_name, "North Street Dental");
+        assert_eq!(restored.location_name, "Main desk");
+        assert_eq!(restored.jurisdiction, "uk");
+        assert_eq!(restored.retention_days, 90);
+        let connection = reopened.store.connection.lock().unwrap();
+        for table in [
+            "users",
+            "organizations",
+            "locations",
+            "memberships",
+            "subscriptions",
+            "audit_events",
+            "notification_preferences",
+        ] {
+            let count: i64 = connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert!(
+                count > 0,
+                "{table} must contain the durable onboarding record"
+            );
+        }
+        drop(connection);
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[tokio::test]
+    async fn m2_claim_export_and_seven_day_deletion_are_owner_controlled() {
+        let path = std::env::temp_dir().join(format!("reminder-proof-m2-{}", Uuid::new_v4()));
+        let state = ClinicState::for_tests(path.clone()).unwrap();
+        let workspace = ClinicWorkspace {
+            owner_oid: "fixture-owner".to_owned(),
+            organization_id: "fixture-org".to_owned(),
+            clinic_name: "Fixture Dental".to_owned(),
+            location_name: "Main".to_owned(),
+            timezone: "UTC".to_owned(),
+            members: vec![ClinicMember {
+                id: "owner-membership".to_owned(),
+                user_oid: Some("fixture-owner".to_owned()),
+                display_name: "Fixture Owner".to_owned(),
+                email: String::new(),
+                role: "owner".to_owned(),
+                state: "active".to_owned(),
+            }],
+            ..Default::default()
+        };
+        state.store.save("fixture-owner", &workspace).unwrap();
+        let application = crate::app_with_clinic_state("m2", "../../dist", state.clone());
+        let export = application
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/exports")
+                    .header(header::AUTHORIZATION, "Bearer test:fixture-owner")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(export.status(), StatusCode::OK);
+        assert_eq!(
+            export.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+            "attachment; filename=reminder-proof-export.json"
+        );
+        let jobs: i64 = state
+            .store
+            .connection
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM export_jobs", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(jobs, 1);
+
+        let scheduled = application
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/account-deletion")
+                    .header(header::AUTHORIZATION, "Bearer test:fixture-owner")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(scheduled.status(), StatusCode::ACCEPTED);
+        let saved = state.store.get("fixture-owner").unwrap().unwrap();
+        let deletion = saved.deletion.unwrap();
+        assert_eq!(deletion.cancel_until - deletion.scheduled_at, 7 * 86_400);
+
+        let cancelled = application
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/account-deletion")
+                    .header(header::AUTHORIZATION, "Bearer test:fixture-owner")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(cancelled.status(), StatusCode::OK);
+        assert!(state
+            .store
+            .get("fixture-owner")
+            .unwrap()
+            .unwrap()
+            .deletion
+            .is_none());
         let _ = fs::remove_dir_all(path);
     }
 }
