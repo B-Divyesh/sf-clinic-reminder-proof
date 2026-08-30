@@ -1,104 +1,85 @@
-# Repair handoff — Reminder Proof
+# Verification handoff — Reminder Proof
 
-Date: 2026-08-29 UTC
+Date: 2026-08-30 UTC
 
-Work order: `clinic-reminder-proof-repair-15`
+Work order: `clinic-reminder-proof-verify-20`
 
-Verifier base: `7d3175f4a60bc02d05248227b312308583f8f441`
+Candidate: `ab685c2435e65a5b3332db785e2bf037d7a3a07a`
 
 Production URL: <https://clinic-reminder-proof.sociobot.in>
 
-## Status: repaired, deployed, and verified
+## Status: FAIL
 
-The release-blocking Azure topology defect from
-[verification-19.md](verification-19.md) is repaired. The product’s passed
-demo, clinic workflow, privacy, accessibility, and delivery-proof behavior is
-unchanged.
+Independent verification is complete. The product source, candidate identity,
+demo workflow, local gates, live browser suite, accessibility, privacy,
+security, rate limits, and performance all passed. Release is blocked because
+the required `single-replica-durable-topology` claim fails against Azure.
 
-## Reproduction and repair
+Azure currently declares unhealthy revision
+`sf-clinic-reminder-proof--0000059` at 100% traffic. It uses short image tag
+`ab685c2435e6`, permits three replicas, and has no durable or backup volumes or
+mounts. It exits with:
 
-- **QA19-01 reproduced first:** `npm run verify:deployment:current` failed
-  exactly with `deployment topology must set minReplicas and maxReplicas to 1`.
-  Fresh Azure inspection showed selected revision `0000056` at 100% traffic,
-  unhealthy, with a short `9791736e1428` image tag, `maxReplicas: 3`, and no
-  `clinic-data` or `clinic-backups` volume mounts. Healthy revision `0000055`
-  had the full candidate tag and both shares, but zero declared traffic.
-- **Root cause:** an image-only update replaced the Container App revision
-  template. It discarded the required Azure Files volumes and relaxed the
-  SQLite single-writer boundary. The process correctly refused to start with
-  missing `/durable` and `/backups` mounts.
-- **Repair:** the topology-aware rollout still composes the full checked-in
-  template, and now also requires the latest revision itself to be the same
-  healthy, full-SHA, sole-100%-traffic revision. The production verifier now
-  explicitly checks selected revision identity and health.
-- **Regression coverage:** `@regression:qa19-01` recreates the exact reported
-  `0000055`/`0000056` state for candidate
-  `9791736e1428961621a50ef8e9e1785c365e76b4`, rejects the unsafe selected
-  revision, proves latest-revision convergence is false, and asserts that the
-  repaired patch restores one-replica scale, both Azure Files shares, and both
-  mount paths.
+```text
+required durable storage mounts are missing: /durable, /backups; refusing
+unsafe production storage
+```
 
-## Verification
+The public URL works through healthy fallback revision `0000058`, which uses
+the full candidate SHA, one replica, and both required Azure Files mounts, but
+Azure reports it at 0% declared traffic. `/health` and the live asset bytes
+match the candidate; the required selected serving topology does not.
 
-- `npm ci`: PASS — 87 packages; `npm audit --omit=dev`: 0 vulnerabilities.
-- `npm test`: PASS — 20 Vitest contracts, 34 Rust API tests, and 40 Chromium
-  workflows. The browser suite includes desktop, 390 px mobile, keyboard and
-  skip-link use, 200% text, reduced motion, dark/light Axe checks, demo
-  isolation/reset, offline read-only behavior, privacy, response policy,
-  CIAM redirect, route/404/link, and console checks.
-- `npm run check`: PASS — Svelte 0 errors/0 warnings, rustfmt, and Clippy with
-  warnings denied.
-- `npm run build`: PASS — emits `dist/` and the release API. Public JS is
-  82.64 KB raw / 28.63 KB gzip; CSS is 25.92 KB raw / 5.54 KB gzip.
-- Default runtime start: PASS with only `PORT`; it generated its data key and
-  served `/health`. A local 100-request `/health` smoke returned 100 × 200.
-- `/opt/fleet/lib/verify-url.sh`: PASS — HTTPS 200, title, `lang=en`, one
-  `<h1>`, main landmark, image alts, named buttons, and no page or console
-  errors. The live checker loaded in 678 ms.
-- Standalone Axe WCAG 2 A/AA scan: PASS — zero violations. A matching
-  disposable ChromeDriver was used because the bundled driver did not match
-  Playwright Chromium.
+## Release-blocking defect
 
-## Deployment evidence
+| Severity | ID | Finding |
+| --- | --- | --- |
+| Critical | QA20-01 | Selected revision `0000059` is `Unhealthy` / `ActivationFailed`, declared at 100% traffic, with `maxReplicas: 3` and no `/durable` or `/backups` mounts. |
 
-- ACR run `ch1a0` built the repair image with the exact full tag
-  `201d7a026870354a194c5784e6ec24ccfb458e9e` and digest
-  `sha256:d3d0e81036a7ebb4ff0ba88e932503b04c68b4221e0df314ff820111d33b9e61`.
-- The topology-aware rollout created
-  `sf-clinic-reminder-proof--0000057`, healthy and `RunningAtMaxScale`, at
-  declared 100% traffic. Its template has `minReplicas: 1`, `maxReplicas: 1`,
-  `clinic-data` → `/durable`, and `clinic-backups` → `/backups`.
-- `npm run verify:deployment:current`: PASS — selected revision `0000057`,
-  one replica, the full image tag and public `/health` build SHA, rate statuses
-  `200,200,200,200,200,429`, and `Retry-After: 3599`.
-- `PLAYWRIGHT_BASE_URL=https://clinic-reminder-proof.sociobot.in npm run
-  test:e2e`: PASS — 40/40 live Chromium tests (`test-results/.last-run.json`:
-  `passed`).
+## Verification summary
 
-## Release operation
+- Claims: 30/31 passed. `single-replica-durable-topology` failed in the exact
+  required `npm run verify:deployment:current` command.
+- First-read: PASS on desktop and 390 px; what it does, audience, first action,
+  and one-click sample demo are all above the fold.
+- `npm ci`: PASS, 87 packages; `npm audit --omit=dev`: 0 vulnerabilities.
+- `npm test`: PASS — 20 Vitest, 34 Rust, 40 Playwright.
+- `npm run check`: PASS — Svelte, rustfmt, and Clippy.
+- Exact `npm run build`: PASS — emitted `dist/` and release API.
+- Live Playwright: 40/40 passed.
+- Axe: zero serious/critical findings on all public/app-entry routes in both
+  themes.
+- `verify-url.sh`: PASS; no console errors or missing baseline semantics.
+- Lighthouse mobile: 99 performance, 100 accessibility, 100 best practices,
+  100 SEO; LCP 1.4 s, CLS 0.001, 89 KiB transfer.
+- Demo rate allowance: five creates per client per hour; request six returned
+  429 with `Retry-After: 3599`. General and protected endpoints also returned
+  429 with positive `Retry-After` after their burst allowance.
+- Runtime: starts with only `PORT`, generates a data key, survives 100
+  concurrent health requests, and shuts down cleanly.
 
-Build and deploy only through the checked-in command; do not use an image-only
-Container Apps update:
+Full evidence, workflow coverage, boundary results, deployment inspection,
+bundle sizes, and limitations are in
+[verification-20.md](verification-20.md).
+
+## Required next action
+
+Deploy only through the checked-in topology-aware rollout using the full
+40-character candidate tag. Require one healthy latest revision at the sole
+100% traffic target, `minReplicas=maxReplicas=1`, and both Azure Files mounts:
 
 ```sh
-git push origin main
-az acr build --registry sociobotregistry --image sf-clinic-reminder-proof:<full-HEAD-SHA> \
-  --file Dockerfile --platform linux/amd64 \
-  --build-arg BUILD_SHA=<full-HEAD-SHA> \
-  --build-arg GIT_SHA=<full-HEAD-SHA> \
-  --build-arg SOURCE_COMMIT=<full-HEAD-SHA> .
-npm run deploy:container -- --image sociobotregistry.azurecr.io/sf-clinic-reminder-proof:<full-HEAD-SHA>
+npm run deploy:container -- --image sociobotregistry.azurecr.io/sf-clinic-reminder-proof:ab685c2435e65a5b3332db785e2bf037d7a3a07a
 npm run verify:deployment:current
 PLAYWRIGHT_BASE_URL=https://clinic-reminder-proof.sociobot.in npm run test:e2e
 ```
 
-## Known limits and operator check
+Do not accept the release until both verification commands pass from a fresh
+checkout.
 
-- This is a web service, not a package or CLI, so package/consumer validation
-  does not apply. It is not a PWA and makes no offline-reload claim; tested
-  offline behavior keeps an already loaded ledger readable and disables writes.
-- The verifier had no real Entra identity, messaging-provider credential, or
-  paid Sociobot subscription. Fixture adapters and protected live boundaries
-  passed. Confirm that
-  `https://clinic-reminder-proof.sociobot.in/auth/callback` remains registered
-  before inviting clinics.
+## Known external check
+
+No real Entra user, messaging-provider credential, or paid Sociobot
+subscription was available. The required CIAM redirect and all protected live
+boundaries passed; fixture adapters cover provider, billing, and persistence
+logic. Confirm the production callback registration before inviting clinics.
