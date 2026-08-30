@@ -493,6 +493,94 @@ describe('planning scaffold contracts', () => {
     });
   });
 
+  test('@regression:qa20-01 repairs the exact unsafe post-handoff deployment', async () => {
+    const topology = JSON.parse(await readRepositoryFile('deployment/containerapp.json'));
+    const candidate = 'ab685c2435e65a5b3332db785e2bf037d7a3a07a';
+    const fullImage = `sociobotregistry.azurecr.io/sf-clinic-reminder-proof:${candidate}`;
+    const reportedTemplate = {
+      containers: [{
+        name: 'app',
+        image: `sociobotregistry.azurecr.io/sf-clinic-reminder-proof:${candidate.slice(0, 12)}`,
+        env: [{ name: 'PORT', value: '8080' }],
+        resources: { cpu: 0.5, memory: '1Gi' }
+      }],
+      scale: { minReplicas: 1, maxReplicas: 3, pollingInterval: 30, cooldownPeriod: 300 },
+      volumes: null
+    };
+    const reportedApp = {
+      properties: {
+        latestRevisionName: 'sf-clinic-reminder-proof--0000059',
+        latestReadyRevisionName: 'sf-clinic-reminder-proof--0000058',
+        template: reportedTemplate
+      }
+    };
+    const reportedRevisions = [
+      {
+        name: 'sf-clinic-reminder-proof--0000058',
+        properties: {
+          active: true,
+          healthState: 'Healthy',
+          trafficWeight: 0,
+          replicas: 1,
+          template: {
+            containers: [{
+              name: 'app',
+              image: fullImage,
+              volumeMounts: topology.properties.template.containers[0].volumeMounts
+            }],
+            scale: { minReplicas: 1, maxReplicas: 1 },
+            volumes: topology.properties.template.volumes
+          }
+        }
+      },
+      {
+        name: 'sf-clinic-reminder-proof--0000059',
+        properties: {
+          active: true,
+          healthState: 'Unhealthy',
+          provisioningState: 'ActivationFailed',
+          trafficWeight: 100,
+          replicas: 1,
+          template: reportedTemplate
+        }
+      }
+    ];
+
+    expect(() => validateTopology(reportedApp)).toThrow(
+      'deployment topology must set minReplicas and maxReplicas to 1'
+    );
+    expect(() => buildShaFromImage(reportedTemplate.containers[0].image)).toThrow(
+      'container image tag must be a full 40-character Git commit SHA'
+    );
+
+    const failedRollout = inspectRollout(reportedApp, reportedRevisions, fullImage);
+    expect(failedRollout).toMatchObject({
+      latestRevision: { name: 'sf-clinic-reminder-proof--0000059' },
+      readyRevision: { name: 'sf-clinic-reminder-proof--0000058' },
+      trafficConverged: false,
+      latestRevisionConverged: false
+    });
+
+    const repaired = buildTopologyPatch(reportedApp, topology, fullImage).properties.template;
+    expect(repaired).toMatchObject({
+      scale: { minReplicas: 1, maxReplicas: 1 },
+      volumes: [
+        { name: 'clinic-data', storageType: 'AzureFile', storageName: 'clinic-reminder-proof-data' },
+        { name: 'clinic-backups', storageType: 'AzureFile', storageName: 'clinic-reminder-proof-backups' }
+      ],
+      containers: [{
+        name: 'app',
+        image: fullImage,
+        env: [{ name: 'PORT', value: '8080' }],
+        resources: { cpu: 0.5, memory: '1Gi' },
+        volumeMounts: [
+          { volumeName: 'clinic-data', mountPath: '/durable' },
+          { volumeName: 'clinic-backups', mountPath: '/backups' }
+        ]
+      }]
+    });
+  });
+
   test('the container build context excludes Git metadata', async () => {
     expect(await readRepositoryFile('.dockerignore')).toMatch(/^\.git$/m);
   });
