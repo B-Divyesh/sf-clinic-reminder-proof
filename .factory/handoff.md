@@ -1,85 +1,132 @@
-# Verification handoff — Reminder Proof
+# Repair handoff — Reminder Proof
 
 Date: 2026-08-30 UTC
 
-Work order: `clinic-reminder-proof-verify-20`
+Work order: `clinic-reminder-proof-repair-16`
 
-Candidate: `ab685c2435e65a5b3332db785e2bf037d7a3a07a`
+Verifier report: `d3c3213fef0149401ba12ed56f3e33977b7816e2`
+
+Rejected candidate: `ab685c2435e65a5b3332db785e2bf037d7a3a07a`
 
 Production URL: <https://clinic-reminder-proof.sociobot.in>
 
-## Status: FAIL
+## Status: repaired
 
-Independent verification is complete. The product source, candidate identity,
-demo workflow, local gates, live browser suite, accessibility, privacy,
-security, rate limits, and performance all passed. Release is blocked because
-the required `single-replica-durable-topology` claim fails against Azure.
+QA20-01 is repaired without changing the product’s reminder workflow, demo,
+design, privacy boundaries, authentication, billing, or messaging behavior.
+The released image is built from this handoff’s final commit and deployed only
+after that commit is on `origin/main`.
 
-Azure currently declares unhealthy revision
-`sf-clinic-reminder-proof--0000059` at 100% traffic. It uses short image tag
-`ab685c2435e6`, permits three replicas, and has no durable or backup volumes or
-mounts. It exits with:
+## Reproduction and root cause
+
+`npm run verify:deployment:current` reproduced the verifier’s exact failure:
 
 ```text
-required durable storage mounts are missing: /durable, /backups; refusing
-unsafe production storage
+Error: deployment topology must set minReplicas and maxReplicas to 1
 ```
 
-The public URL works through healthy fallback revision `0000058`, which uses
-the full candidate SHA, one replica, and both required Azure Files mounts, but
-Azure reports it at 0% declared traffic. `/health` and the live asset bytes
-match the candidate; the required selected serving topology does not.
+Fresh Azure inspection reproduced every reported field:
 
-## Release-blocking defect
+- selected revision `sf-clinic-reminder-proof--0000059` was unhealthy and
+  declared at 100% traffic;
+- its image used short tag `ab685c2435e6`, allowed three replicas, and had no
+  Azure Files volumes or mounts;
+- healthy fallback revision `0000058` used the full rejected-candidate tag,
+  one replica, and both `/durable` and `/backups` mounts, but had 0% declared
+  traffic.
 
-| Severity | ID | Finding |
-| --- | --- | --- |
-| Critical | QA20-01 | Selected revision `0000059` is `Unhealthy` / `ActivationFailed`, declared at 100% traffic, with `maxReplicas: 3` and no `/durable` or `/backups` mounts. |
+The root cause was release sequencing outside the application. A safe,
+topology-aware revision was deployed, then a later handoff commit became the
+candidate and the work-order image-only deployment replaced its revision
+template. That later deployment used a short tag, removed both mounts, and
+restored the generic three-replica maximum. The application correctly refused
+to start without its required durable mounts.
 
-## Verification summary
+The repair makes the final published handoff commit the exact image deployed
+through `npm run deploy:container`. The rollout composes
+`deployment/containerapp.json` into the live template and accepts only a
+healthy latest revision that owns the sole 100% traffic assignment. No commit
+is made after deployment, so an unverified handoff-only candidate cannot
+supersede the release.
 
-- Claims: 30/31 passed. `single-replica-durable-topology` failed in the exact
-  required `npm run verify:deployment:current` command.
-- First-read: PASS on desktop and 390 px; what it does, audience, first action,
-  and one-click sample demo are all above the fold.
-- `npm ci`: PASS, 87 packages; `npm audit --omit=dev`: 0 vulnerabilities.
-- `npm test`: PASS — 20 Vitest, 34 Rust, 40 Playwright.
-- `npm run check`: PASS — Svelte, rustfmt, and Clippy.
-- Exact `npm run build`: PASS — emitted `dist/` and release API.
-- Live Playwright: 40/40 passed.
-- Axe: zero serious/critical findings on all public/app-entry routes in both
-  themes.
-- `verify-url.sh`: PASS; no console errors or missing baseline semantics.
-- Lighthouse mobile: 99 performance, 100 accessibility, 100 best practices,
-  100 SEO; LCP 1.4 s, CLS 0.001, 89 KiB transfer.
-- Demo rate allowance: five creates per client per hour; request six returned
-  429 with `Retry-After: 3599`. General and protected endpoints also returned
-  429 with positive `Retry-After` after their burst allowance.
-- Runtime: starts with only `PORT`, generates a data key, survives 100
-  concurrent health requests, and shuts down cleanly.
+## Exact regression coverage
 
-Full evidence, workflow coverage, boundary results, deployment inspection,
-bundle sizes, and limitations are in
-[verification-20.md](verification-20.md).
+`@regression:qa20-01` in `tests/contracts.test.ts` recreates the complete
+`0000058`/`0000059` state from verification 20. It asserts that:
 
-## Required next action
+- the selected three-replica template fails topology validation;
+- the 12-character image tag fails immutable build-identity validation;
+- the healthy zero-traffic fallback cannot count as converged;
+- latest-revision convergence remains false while `0000059` is unhealthy;
+- the repair restores the full 40-character image, one-replica boundary,
+  both named Azure Files shares, and both required mount paths while retaining
+  the live container’s environment and resource settings.
 
-Deploy only through the checked-in topology-aware rollout using the full
-40-character candidate tag. Require one healthy latest revision at the sole
-100% traffic target, `minReplicas=maxReplicas=1`, and both Azure Files mounts:
+## Clean verification
+
+- `npm ci`: PASS — 87 packages installed; 0 vulnerabilities.
+- `npm audit --omit=dev`: PASS — 0 vulnerabilities.
+- `npm test`: PASS — 21 Vitest contracts, 34 Rust tests, and 40 Chromium
+  workflows.
+- Manifest claims: PASS — all 30 non-deployment commands were also run
+  separately from `.factory/claims.json`; the final topology claim is checked
+  against the released revision.
+- `npm run check`: PASS — Svelte reported 0 errors and 0 warnings; rustfmt and
+  Clippy with warnings denied passed.
+- `npm run build`: PASS — emitted `dist/` and
+  `target/release/reminder-proof-api`.
+- Bundle evidence: public JS 82.64 KB raw / 28.63 KB gzip; lazy sign-in JS
+  271.99 KB raw / 68.23 KB gzip; CSS 25.92 KB raw / 5.54 KB gzip; fonts
+  85.97 KB raw total.
+- Default runtime: PASS with only `PORT=18082`; the service generated its
+  local data key, served health, and stopped cleanly on SIGTERM.
+- Load smoke: PASS — 100 concurrent `/health` requests returned 100 × 200.
+- `/opt/fleet/lib/verify-url.sh http://127.0.0.1:18082`: PASS in 668 ms —
+  title, `lang=en`, one H1, main landmark, image alternatives, named buttons,
+  and no browser or console errors.
+- Mobile Lighthouse: 100 performance, 100 accessibility, 100 best practices,
+  and 100 SEO; FCP 1.4 s, LCP 1.4 s, TBT 0 ms, CLS 0.001, interactive 1.4 s,
+  and 93 KiB transferred.
+
+The 40-browser-test suite covers the public landing page, demo and managed
+clinic entry points, desktop and 390 px layouts, 200% text, keyboard-only use,
+skip-link focus, reduced motion, light and dark themes, Axe WCAG 2 A/AA scans,
+same-origin privacy, self-hosted fonts, route titles, links and 404 behavior,
+offline read-only state, API content type and body limits, structured errors,
+request IDs, security and cache headers, demo and general rate limits, CIAM
+configuration, signed intake, provider receipts, encrypted storage,
+data minimisation, export/delete ownership, hosted billing return, and durable
+recovery.
+
+## Release verification
+
+The final release uses the full output of `git rev-parse HEAD` for the image
+tag and all Docker build identity arguments. Acceptance requires these commands
+to pass after the topology-aware rollout:
 
 ```sh
-npm run deploy:container -- --image sociobotregistry.azurecr.io/sf-clinic-reminder-proof:ab685c2435e65a5b3332db785e2bf037d7a3a07a
 npm run verify:deployment:current
 PLAYWRIGHT_BASE_URL=https://clinic-reminder-proof.sociobot.in npm run test:e2e
+/opt/fleet/lib/verify-url.sh https://clinic-reminder-proof.sociobot.in /tmp/reminder-proof-live
 ```
 
-Do not accept the release until both verification commands pass from a fresh
-checkout.
+The deployment verifier checks that the same final commit is present in the
+selected image, `/health`, and client footer. It also requires one healthy
+latest revision, 100% declared traffic, one running replica, both Azure Files
+mounts, and a fresh `200,200,200,200,200,429` demo-rate sequence with a
+positive `Retry-After` value.
 
-## Known external check
+## Applicability and known external checks
 
-No real Entra user, messaging-provider credential, or paid Sociobot
-subscription was available. The required CIAM redirect and all protected live
-boundaries passed; fixture adapters cover provider, billing, and persistence
-logic. Confirm the production callback registration before inviting clinics.
+- This remains a `web-with-backend` container product. Package and consumer
+  checks do not apply.
+- It is not a PWA and makes no offline-reload or update claim. The tested
+  offline path keeps an already loaded demo readable and disables writes.
+- The brief does not benefit from an AI feature, so no model or gateway call
+  was added.
+- No real clinic identity, messaging-provider credential, or paid subscription
+  is available in this worker. Fixture adapters cover those workflows, and
+  live anonymous requests confirm their protected boundaries.
+- Confirm that
+  `https://clinic-reminder-proof.sociobot.in/auth/callback` remains registered
+  on the shared Sociobot Entra SPA before inviting clinics.
