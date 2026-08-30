@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { createFreshTestClient } from '../../scripts/fresh-client-identity.mjs';
 
 const exec = promisify(execFile);
@@ -78,4 +79,27 @@ test('@claim:account-deletion An owner can schedule account deletion with a seve
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Clinic data controls');
   const output = await cargoClaim('clinic::tests::m2_claim_export_and_seven_day_deletion_are_owner_controlled');
   expect(output).toContain('m2_claim_export_and_seven_day_deletion_are_owner_controlled ... ok');
+});
+
+test('M2 routes keep exact titles, one heading, mobile reflow, and accessible sign-in states', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const routes = [
+    ['/sign-in', 'Sign in — Reminder Proof', 'Sign in to manage a clinic'],
+    ['/onboarding/clinic', 'Clinic details — Reminder Proof', 'Name your clinic workspace'],
+    ['/onboarding/location', 'Location setup — Reminder Proof', 'Add your first location'],
+    ['/onboarding/staff', 'Staff setup — Reminder Proof', 'Choose who can use this clinic'],
+    ['/app/settings/members', 'Staff access — Reminder Proof', 'Staff access'],
+    ['/app/settings/billing', 'Plan and billing — Reminder Proof', 'Plan and billing'],
+    ['/app/settings/privacy', 'Clinic data controls — Reminder Proof', 'Clinic data controls']
+  ];
+  for (const [route, title, heading] of routes) {
+    await page.goto(route);
+    await expect(page).toHaveTitle(title);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(heading);
+    await expect(page.locator('h1')).toHaveCount(1);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    expect(overflow, `${route} must not overflow at 390px`).toBe(false);
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([]);
+  }
 });

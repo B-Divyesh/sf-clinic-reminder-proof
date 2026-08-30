@@ -356,6 +356,22 @@ pub struct DeletionResponse {
 }
 
 #[derive(Serialize)]
+pub struct ClinicExport {
+    schema_version: u8,
+    exported_at: u64,
+    clinic: WorkspaceResponse,
+    audit_events: Vec<AuditEvent>,
+    notification_preferences: Vec<NotificationPreferenceExport>,
+}
+
+#[derive(Serialize)]
+pub struct NotificationPreferenceExport {
+    membership_id: String,
+    digest_enabled: bool,
+    exception_email: bool,
+}
+
+#[derive(Serialize)]
 pub struct ConnectorCreated {
     connector: ConnectorPublic,
     signing_secret: String,
@@ -1007,6 +1023,13 @@ fn sync_account_records(
             "INSERT INTO notification_preferences(membership_id,digest_enabled,exception_email,updated_at)
              VALUES(?1,0,0,?2) ON CONFLICT(membership_id) DO NOTHING",
             params![owner_membership_id, timestamp],
+        )
+        .map_err(|_| internal())?;
+
+    transaction
+        .execute(
+            "DELETE FROM memberships WHERE organization_id=?1 AND role<>'owner'",
+            params![workspace.organization_id],
         )
         .map_err(|_| internal())?;
 
@@ -1854,7 +1877,10 @@ async fn ensure_active_subscription(
     state: &ClinicState,
     workspace: &mut ClinicWorkspace,
 ) -> Result<(), ApiError> {
-    if workspace.subscription.status.as_deref() != Some("active") {
+    if !matches!(
+        workspace.subscription.status.as_deref(),
+        Some("active" | "grace")
+    ) {
         return Err(ApiError::new(
             StatusCode::PAYMENT_REQUIRED,
             "subscription_required",
@@ -1893,22 +1919,52 @@ async fn ensure_active_subscription(
                 "Sociobot billing could not be reached. Try again shortly.",
             )
         })?;
-    let valid = response
-        .json::<serde_json::Value>()
-        .await
-        .ok()
-        .and_then(|value| value.get("valid").and_then(|valid| valid.as_bool()))
-        == Some(true);
-    if !valid {
-        workspace.subscription.status = Some("inactive".to_owned());
+    let verdict = response.json::<serde_json::Value>().await.map_err(|_| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "billing_invalid",
+            "Sociobot billing returned an unreadable response.",
+        )
+    })?;
+    let status = subscription_status(&verdict);
+    if !matches!(status, "active" | "grace") {
+        workspace.subscription.status = Some(status.to_owned());
+        workspace.subscription.checked_at = Some(now());
+        state.store.save(&workspace.owner_oid, workspace)?;
         return Err(ApiError::new(
             StatusCode::PAYMENT_REQUIRED,
             "subscription_inactive",
             "This subscription is not active. Check billing in Sociobot.",
         ));
     }
+    workspace.subscription.status = Some(status.to_owned());
     workspace.subscription.checked_at = Some(now());
     Ok(())
+}
+
+fn subscription_status(verdict: &serde_json::Value) -> &'static str {
+    if let Some(status) = verdict.get("status").and_then(|value| value.as_str()) {
+        if matches!(
+            status,
+            "active" | "grace" | "past_due" | "cancelled" | "revoked"
+        ) {
+            return match status {
+                "active" => "active",
+                "grace" => "grace",
+                "past_due" => "past_due",
+                "cancelled" => "cancelled",
+                _ => "revoked",
+            };
+        }
+    }
+    if verdict.get("valid").and_then(|value| value.as_bool()) == Some(true) {
+        return "active";
+    }
+    match verdict.get("reason").and_then(|value| value.as_str()) {
+        Some("revoked") | Some("wrong_product") => "revoked",
+        Some("expired") => "cancelled",
+        _ => "past_due",
+    }
 }
 
 fn eligible_channels(reminder: &ClinicReminder) -> Vec<ReminderChannel> {
@@ -2608,7 +2664,24 @@ pub async fn export_workspace(
         .store
         .record_export(&identity.oid, &workspace.organization_id)
         .map_err(IntoResponse::into_response)?;
-    let mut response = Json(WorkspaceResponse::from(workspace)).into_response();
+    let notification_preferences = workspace
+        .members
+        .iter()
+        .map(|member| NotificationPreferenceExport {
+            membership_id: member.id.clone(),
+            digest_enabled: false,
+            exception_email: false,
+        })
+        .collect();
+    let audit_events = workspace.audit.clone();
+    let mut response = Json(ClinicExport {
+        schema_version: 1,
+        exported_at: now(),
+        clinic: WorkspaceResponse::from(workspace),
+        audit_events,
+        notification_preferences,
+    })
+    .into_response();
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
         HeaderValue::from_static("attachment; filename=reminder-proof-export.json"),
@@ -2817,12 +2890,8 @@ pub async fn billing_return(
         )
         .into_response()
     })?;
-    if verdict.get("valid").and_then(|value| value.as_bool()) != Some(true) {
-        let status = match verdict.get("reason").and_then(|value| value.as_str()) {
-            Some("revoked") | Some("wrong_product") => "revoked",
-            Some("expired") => "cancelled",
-            _ => "past_due",
-        };
+    let status = subscription_status(&verdict);
+    if !matches!(status, "active" | "grace") {
         workspace.subscription.status = Some(status.to_owned());
         workspace.subscription.checked_at = Some(now());
         state
@@ -2847,7 +2916,7 @@ pub async fn billing_return(
     }
     workspace.subscription = Subscription {
         tier: Some(tier),
-        status: Some("active".to_owned()),
+        status: Some(status.to_owned()),
         checked_at: Some(now()),
         encrypted_entitlement: Some(
             state
@@ -3054,6 +3123,30 @@ mod tests {
                 .map(|item| item.channel.as_str())
                 .collect::<Vec<_>>(),
             vec!["email", "whatsapp"]
+        );
+    }
+
+    #[test]
+    fn m2_billing_verdicts_cover_subscription_states() {
+        assert_eq!(
+            subscription_status(&serde_json::json!({"valid":true})),
+            "active"
+        );
+        assert_eq!(
+            subscription_status(&serde_json::json!({"valid":true,"status":"grace"})),
+            "grace"
+        );
+        assert_eq!(
+            subscription_status(&serde_json::json!({"valid":false,"reason":"invalid"})),
+            "past_due"
+        );
+        assert_eq!(
+            subscription_status(&serde_json::json!({"valid":false,"reason":"expired"})),
+            "cancelled"
+        );
+        assert_eq!(
+            subscription_status(&serde_json::json!({"valid":false,"reason":"revoked"})),
+            "revoked"
         );
     }
 
