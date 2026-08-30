@@ -3,7 +3,14 @@
   <url><loc>https://clinic-reminder-proof.sociobot.in/</loc></url>
   <url><loc>https://clinic-reminder-proof.sociobot.in/demo</loc></url>
   <url><loc>https://clinic-reminder-proof.sociobot.in/start</loc></url>
+  <url><loc>https://clinic-reminder-proof.sociobot.in/sign-in</loc></url>
+  <url><loc>https://clinic-reminder-proof.sociobot.in/onboarding/clinic</loc></url>
+  <url><loc>https://clinic-reminder-proof.sociobot.in/onboarding/location</loc></url>
+  <url><loc>https://clinic-reminder-proof.sociobot.in/onboarding/staff</loc></url>
   <url><loc>https://clinic-reminder-proof.sociobot.in/app</loc></url>
+  <url><loc>https://clinic-reminder-proof.sociobot.in/app/settings/members</loc></url>
+  <url><loc>https://clinic-reminder-proof.sociobot.in/app/settings/billing</loc></url>
+  <url><loc>https://clinic-reminder-proof.sociobot.in/app/settings/privacy</loc></url>
   <url><loc>https://clinic-reminder-proof.sociobot.in/privacy</loc></url>
   <url><loc>https://clinic-reminder-proof.sociobot.in/terms</loc></url>
 </urlset>

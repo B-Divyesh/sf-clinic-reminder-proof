@@ -48,7 +48,9 @@
     timeline: { at: number; kind: string; channel: string | null; outcome: string; provider_reference: string | null }[];
     exception: ClinicException | null;
   };
-  type ClinicWorkspace = { organization_id: string; clinic_name: string; location_name: string; timezone: string; connector: { id: string; kind: string; last_received_at: number | null } | null; providers: { id: string; channel: string; kind: string; from: string; approved_template_id: string }[]; reminders: ClinicReminder[]; subscription: { tier: string | null; status: string | null } };
+  type ClinicMember = { id: string; user_oid: string | null; display_name: string; email: string; role: string; state: string };
+  type ClinicWorkspace = { organization_id: string; clinic_name: string; location_name: string; timezone: string; jurisdiction: string; retention_days: number; members: ClinicMember[]; deletion: { scheduled_at: number; cancel_until: number } | null; connector: { id: string; kind: string; last_received_at: number | null } | null; providers: { id: string; channel: string; kind: string; from: string; approved_template_id: string }[]; reminders: ClinicReminder[]; subscription: { tier: string | null; status: string | null } };
+  type OnboardingDraft = { clinic_name?: string; jurisdiction?: string; retention_days?: number; location_name?: string; timezone?: string };
   type ThemeChoice = 'system' | 'light' | 'dark';
 
   let pagePath = typeof window === 'undefined' ? '/' : window.location.pathname;
@@ -65,6 +67,8 @@
   let authReady = false;
   let connectorSecret = '';
   let pendingLicense = '';
+  let selectedBillingTier = 'clinic';
+  let onboardingDraft: OnboardingDraft = {};
   let themeChoice: ThemeChoice = 'system';
 
   const description =
@@ -80,7 +84,15 @@
     if (path === '/privacy') return { title: 'Privacy — Reminder Proof', heading: 'How Reminder Proof handles data' };
     if (path === '/terms') return { title: 'Terms — Reminder Proof', heading: 'Terms for Reminder Proof' };
     if (path === '/start') return { title: 'Start a clinic — Reminder Proof', heading: 'Connect your clinic reminders' };
-    if (path === '/app' || path === '/auth/callback') return { title: 'Clinic ledger — Reminder Proof', heading: 'Clinic reminder ledger' };
+    if (path === '/sign-in') return { title: 'Sign in — Reminder Proof', heading: 'Sign in to manage a clinic' };
+    if (path === '/auth/callback') return { title: 'Signing in — Reminder Proof', heading: 'Finishing secure sign-in' };
+    if (path === '/onboarding/clinic') return { title: 'Clinic details — Reminder Proof', heading: 'Name your clinic workspace' };
+    if (path === '/onboarding/location') return { title: 'Location setup — Reminder Proof', heading: 'Add your first location' };
+    if (path === '/onboarding/staff') return { title: 'Staff setup — Reminder Proof', heading: 'Choose who can use this clinic' };
+    if (path === '/app/settings/members') return { title: 'Staff access — Reminder Proof', heading: 'Staff access' };
+    if (path === '/app/settings/billing') return { title: 'Plan and billing — Reminder Proof', heading: 'Plan and billing' };
+    if (path === '/app/settings/privacy') return { title: 'Clinic data controls — Reminder Proof', heading: 'Clinic data controls' };
+    if (path === '/app') return { title: 'Clinic ledger — Reminder Proof', heading: 'Clinic reminder ledger' };
     return { title: 'Page not found — Reminder Proof', heading: 'Page not found' };
   }
 
@@ -98,6 +110,7 @@
     const savedTheme = localStorage.getItem('reminder-proof:theme');
     if (savedTheme === 'light' || savedTheme === 'dark') themeChoice = savedTheme;
     applyTheme(themeChoice);
+    onboardingDraft = JSON.parse(sessionStorage.getItem('reminder-proof:onboarding') ?? '{}') as OnboardingDraft;
     const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
     const syncSystemTheme = () => {
       if (themeChoice === 'system') applyTheme('system');
@@ -118,12 +131,12 @@
     } else if (isDemoPath()) {
       void loadDemo();
     }
-    if (['/start', '/app', '/auth/callback'].includes(window.location.pathname)) void initializeAuth();
+    if (isManagedPath()) void initializeAuth();
     const pop = () => {
       pagePath = window.location.pathname;
       error = '';
       if (isDemoPath()) void loadDemo();
-      if (['/start', '/app', '/auth/callback'].includes(pagePath)) void initializeAuth();
+      if (isManagedPath()) void initializeAuth();
       focusRoute();
     };
     const online = () => (offline = false);
@@ -155,6 +168,10 @@
 
   function isDemoPath() {
     return pagePath === '/demo' || pagePath.startsWith('/demo/reminders/');
+  }
+
+  function isManagedPath() {
+    return pagePath === '/start' || pagePath === '/sign-in' || pagePath === '/auth/callback' || pagePath === '/app' || pagePath.startsWith('/onboarding/') || pagePath.startsWith('/app/settings/');
   }
 
   async function focusRoute() {
@@ -310,9 +327,9 @@
       const result = await authClient.handleRedirectPromise();
       account = result?.account ?? authClient.getAllAccounts()[0] ?? null;
       authReady = true;
-      if (pagePath === '/auth/callback') navigate('/app', true);
       if (account) {
         await loadClinic();
+        if (pagePath === '/auth/callback') navigate(clinic ? '/app' : '/onboarding/clinic', true);
         await redeemBillingReturn();
       }
     } catch (cause) {
@@ -341,10 +358,11 @@
     try {
       clinic = await clinicRequest<ClinicWorkspace>('/api/v1/billing/return', {
         method: 'POST',
-        body: JSON.stringify({ license: pendingLicense })
+        body: JSON.stringify({ license: pendingLicense, tier: sessionStorage.getItem('billing:tier:clinic-reminder-proof') ?? 'clinic' })
       });
       pendingLicense = '';
       sessionStorage.removeItem('billing:return:clinic-reminder-proof');
+      sessionStorage.removeItem('billing:tier:clinic-reminder-proof');
       notice = 'Your Sociobot Clinic plan is active.';
     } catch (cause) {
       error = (cause as Error).message;
@@ -364,6 +382,46 @@
     const fields = new FormData(event.currentTarget as HTMLFormElement);
     try { clinic = await clinicRequest<ClinicWorkspace>('/api/v1/clinic', { method: 'POST', body: JSON.stringify({ clinic_name: fields.get('clinic_name'), location_name: fields.get('location_name'), timezone: fields.get('timezone') }) }); notice = 'Clinic workspace saved in managed storage.'; }
     catch (cause) { error = (cause as Error).message; } finally { busy = false; }
+  }
+
+  function saveOnboardingDraft(next: string, values: OnboardingDraft) {
+    onboardingDraft = { ...onboardingDraft, ...values };
+    sessionStorage.setItem('reminder-proof:onboarding', JSON.stringify(onboardingDraft));
+    navigate(next);
+  }
+
+  function saveClinicStep(event: SubmitEvent) {
+    event.preventDefault();
+    const fields = new FormData(event.currentTarget as HTMLFormElement);
+    saveOnboardingDraft('/onboarding/location', {
+      clinic_name: String(fields.get('clinic_name') ?? ''),
+      jurisdiction: String(fields.get('jurisdiction') ?? 'other'),
+      retention_days: Number(fields.get('retention_days') ?? 365)
+    });
+  }
+
+  function saveLocationStep(event: SubmitEvent) {
+    event.preventDefault();
+    const fields = new FormData(event.currentTarget as HTMLFormElement);
+    saveOnboardingDraft('/onboarding/staff', {
+      location_name: String(fields.get('location_name') ?? ''),
+      timezone: String(fields.get('timezone') ?? 'UTC')
+    });
+  }
+
+  async function completeOnboarding(event: SubmitEvent) {
+    event.preventDefault(); busy = true; error = '';
+    const fields = new FormData(event.currentTarget as HTMLFormElement);
+    const staffName = String(fields.get('staff_name') ?? '').trim();
+    const staff = staffName ? [{ display_name: staffName, email: String(fields.get('staff_email') ?? ''), role: String(fields.get('staff_role') ?? 'staff') }] : [];
+    try {
+      clinic = await clinicRequest<ClinicWorkspace>('/api/v1/organizations', { method: 'POST', body: JSON.stringify({ ...onboardingDraft, owner_name: fields.get('owner_name'), staff }) });
+      sessionStorage.removeItem('reminder-proof:onboarding');
+      onboardingDraft = {};
+      notice = 'Clinic workspace created.';
+      navigate('/app');
+    } catch (cause) { error = (cause as Error).message; }
+    finally { busy = false; }
   }
 
   async function saveConnector(event: SubmitEvent) {
@@ -387,19 +445,32 @@
     catch (cause) { error = (cause as Error).message; } finally { busy = false; }
   }
 
-  async function startCheckout() {
+  async function startCheckout(tier = selectedBillingTier) {
     busy = true;
     error = '';
     try {
       const checkout = await clinicRequest<{ checkout_url: string }>('/api/v1/billing/checkout', {
         method: 'POST',
-        body: JSON.stringify({ tier: 'clinic' })
+        body: JSON.stringify({ tier })
       });
+      sessionStorage.setItem('billing:tier:clinic-reminder-proof', tier);
       window.location.assign(checkout.checkout_url);
     } catch (cause) {
       error = (cause as Error).message;
       busy = false;
     }
+  }
+
+  async function addStaffMember(event: SubmitEvent) {
+    event.preventDefault(); busy = true; error = '';
+    const fields = new FormData(event.currentTarget as HTMLFormElement);
+    try {
+      await clinicRequest<ClinicMember>('/api/v1/memberships', { method: 'POST', body: JSON.stringify({ display_name: fields.get('display_name'), email: fields.get('email'), role: fields.get('role') }) });
+      await loadClinic();
+      notice = 'Staff access saved.';
+      (event.currentTarget as HTMLFormElement).reset();
+    } catch (cause) { error = (cause as Error).message; }
+    finally { busy = false; }
   }
 
   async function saveException(id: string, action: 'assign' | 'resolve', value: string) {
@@ -416,9 +487,14 @@
     const link = document.createElement('a'); link.href = URL.createObjectURL(await response.blob()); link.download = 'reminder-proof-export.json'; link.click(); URL.revokeObjectURL(link.href);
   }
 
-  async function deleteClinic() {
-    if (!clinic || !window.confirm(`Delete ${clinic.clinic_name} and its reminder evidence? This cannot be undone.`)) return;
-    try { await clinicRequest<void>('/api/v1/clinic', { method: 'DELETE', headers: { 'x-confirm-delete': clinic.organization_id } }); clinic = null; notice = 'Clinic workspace deleted.'; }
+  async function scheduleDeletion() {
+    if (!clinic || !window.confirm(`Schedule ${clinic.clinic_name} for deletion? You can cancel for seven days.`)) return;
+    try { await clinicRequest('/api/v1/account-deletion', { method: 'POST' }); await loadClinic(); notice = 'Clinic deletion scheduled. You can cancel it for seven days.'; }
+    catch (cause) { error = (cause as Error).message; }
+  }
+
+  async function cancelDeletion() {
+    try { await clinicRequest('/api/v1/account-deletion', { method: 'DELETE' }); await loadClinic(); notice = 'Clinic deletion cancelled.'; }
     catch (cause) { error = (cause as Error).message; }
   }
 </script>
@@ -594,9 +670,9 @@
         {#if selectedReminder.exception}<section class="detail-exception" aria-labelledby="detail-exception-title"><h2 id="detail-exception-title">Exception</h2><p>{selectedReminder.exception.reason}</p><p>{selectedReminder.exception.next_action}</p><a href="/demo" onclick={(event) => follow(event, '/demo')}>Manage this exception in the sample queue</a></section>{/if}
       {/if}
     </section>
-  {:else if pagePath === '/start'}
+  {:else if pagePath === '/start' || pagePath === '/sign-in'}
     <section class="app-page real-page" aria-labelledby="page-title">
-      <div class="page-heading"><div><p class="eyebrow">Managed clinic workflow</p><h1 id="page-title" tabindex="-1">Connect your clinic reminders</h1><p>Sign in, connect your calendar, and send approved reminders with delivery proof and staff-owned exceptions.</p></div></div>
+      <div class="page-heading"><div><p class="eyebrow">Managed clinic workflow</p><h1 id="page-title" tabindex="-1">{pagePath === '/sign-in' ? 'Sign in to manage a clinic' : 'Connect your clinic reminders'}</h1><p>Sign in, create your clinic workspace, and choose who can use it.</p></div></div>
       <div class="workflow-grid" aria-label="Clinic workflow">
         <div><span>01</span><h2>Sign in safely</h2><p>Sociobot Microsoft Entra protects each clinic workspace.</p></div>
         <div><span>02</span><h2>Connect approved services</h2><p>A signed calendar feed and encrypted messaging-provider credentials keep systems separate.</p></div>
@@ -611,6 +687,57 @@
         <span>$79 per location each month. Messaging-provider fees are separate.</span>
       </div>
     </section>
+  {:else if pagePath.startsWith('/onboarding/')}
+    <section class="app-page real-page" aria-labelledby="page-title">
+      <div class="page-heading"><div><p class="eyebrow">Clinic setup</p><h1 id="page-title" tabindex="-1">{meta.heading}</h1><p>Set the data boundary before you connect a source or messaging provider.</p></div>{#if account}<button class="text-button" onclick={signOut}>Sign out</button>{/if}</div>
+      {#if error}<div class="state-notice danger" role="alert">{error}</div>{/if}
+      {#if !authReady || loading}<div class="state-panel" role="status">Loading your secure clinic setup…</div>
+      {:else if !account}<div class="state-panel"><h2>Sign in to continue</h2><p>Your clinic setup is not part of the public demo.</p><button class="button primary" onclick={signIn}>Sign in with Microsoft</button></div>
+      {:else if clinic}<div class="state-panel"><h2>Your clinic is ready</h2><p>Open its ledger or change account settings.</p><a class="button primary" href="/app" onclick={(event) => follow(event, '/app')}>Open clinic ledger</a></div>
+      {:else if pagePath === '/onboarding/clinic'}
+        <form class="setup-form onboarding-form" onsubmit={saveClinicStep}>
+          <p class="step-count">Step 1 of 3</p>
+          <label>Clinic name<input name="clinic_name" required maxlength="100" autocomplete="organization" value={onboardingDraft.clinic_name ?? ''} /></label>
+          <label>Jurisdiction<select name="jurisdiction" required value={onboardingDraft.jurisdiction ?? 'other'}><option value="us">United States</option><option value="uk">United Kingdom</option><option value="eu">European Union</option><option value="ca">Canada</option><option value="au">Australia</option><option value="other">Another jurisdiction</option></select><small>Unknown rules stay blocked until the clinic confirms consent.</small></label>
+          <label>Keep reminder records<select name="retention_days" required value={onboardingDraft.retention_days ?? 365}><option value="30">30 days</option><option value="90">90 days</option><option value="365">365 days</option></select></label>
+          <div class="state-notice warning"><strong>Do not enter clinical notes.</strong> Reminder Proof stores reminder operations, not medical records.</div>
+          <button class="button primary">Save clinic details</button>
+        </form>
+      {:else if pagePath === '/onboarding/location'}
+        <form class="setup-form onboarding-form" onsubmit={saveLocationStep}>
+          <p class="step-count">Step 2 of 3</p>
+          <label>Location name<input name="location_name" required maxlength="100" value={onboardingDraft.location_name ?? ''} /></label>
+          <label>Timezone<input name="timezone" required maxlength="64" value={onboardingDraft.timezone ?? 'Europe/London'} aria-describedby="onboarding-timezone-help" /><small id="onboarding-timezone-help">Use an IANA timezone such as Europe/London.</small></label>
+          <div class="form-actions"><a class="button secondary" href="/onboarding/clinic" onclick={(event) => follow(event, '/onboarding/clinic')}>Back to clinic details</a><button class="button primary">Save location</button></div>
+        </form>
+      {:else}
+        <form class="setup-form onboarding-form" onsubmit={completeOnboarding}>
+          <p class="step-count">Step 3 of 3</p>
+          <label>Your name<input name="owner_name" required maxlength="100" autocomplete="name" /></label>
+          <fieldset><legend>Add one staff member now <span>(optional)</span></legend><label>Staff name<input name="staff_name" maxlength="100" autocomplete="off" /></label><label>Staff email<input name="staff_email" type="email" maxlength="254" autocomplete="off" /></label><label>Role<select name="staff_role"><option value="staff">Staff</option><option value="manager">Manager</option><option value="viewer">Viewer</option></select></label></fieldset>
+          <p>Staff without a linked Sociobot account stay pending and cannot open clinic data.</p>
+          <div class="form-actions"><a class="button secondary" href="/onboarding/location" onclick={(event) => follow(event, '/onboarding/location')}>Back to location</a><button class="button primary" disabled={busy}>Create clinic workspace</button></div>
+        </form>
+      {/if}
+    </section>
+  {:else if pagePath.startsWith('/app/settings/')}
+    <section class="app-page real-page" aria-labelledby="page-title">
+      <div class="page-heading"><div><p class="eyebrow">Clinic settings</p><h1 id="page-title" tabindex="-1">{meta.heading}</h1><p>Account changes stay inside your signed-in clinic.</p></div>{#if account}<button class="text-button" onclick={signOut}>Sign out</button>{/if}</div>
+      <nav class="settings-nav" aria-label="Clinic settings"><a href="/app" onclick={(event) => follow(event, '/app')}>Ledger</a><a href="/app/settings/members" onclick={(event) => follow(event, '/app/settings/members')}>Staff access</a><a href="/app/settings/billing" onclick={(event) => follow(event, '/app/settings/billing')}>Plan and billing</a><a href="/app/settings/privacy" onclick={(event) => follow(event, '/app/settings/privacy')}>Data controls</a></nav>
+      {#if error}<div class="state-notice danger" role="alert">{error}</div>{/if}
+      {#if notice}<div class="state-notice success" role="status">{notice}</div>{/if}
+      {#if !authReady || loading}<div class="state-panel" role="status">Loading clinic settings…</div>
+      {:else if !account}<div class="state-panel"><h2>Sign in to continue</h2><button class="button primary" onclick={signIn}>Sign in with Microsoft</button></div>
+      {:else if !clinic}<div class="state-panel"><h2>Create a clinic first</h2><p>Clinic settings appear after setup.</p><a class="button primary" href="/onboarding/clinic" onclick={(event) => follow(event, '/onboarding/clinic')}>Start clinic setup</a></div>
+      {:else if pagePath === '/app/settings/members'}
+        <section class="settings-panel" aria-labelledby="members-list-title"><h2 id="members-list-title">People with clinic access</h2><ul class="member-list">{#each clinic.members as member}<li><span><strong>{member.display_name}</strong><small>{member.email || 'Sociobot account'} · {member.state}</small></span><span class="status-word">{member.role}</span></li>{/each}</ul></section>
+        <form class="setup-form" onsubmit={addStaffMember}><div><h2>Add staff access</h2><p>The person stays pending until their Sociobot account is linked.</p></div><label>Name<input name="display_name" required maxlength="100" /></label><label>Email<input name="email" required type="email" maxlength="254" /></label><label>Role<select name="role"><option value="staff">Staff</option><option value="manager">Manager</option><option value="viewer">Viewer</option></select></label><button class="button primary" disabled={busy}>Save staff access</button></form>
+      {:else if pagePath === '/app/settings/billing'}
+        <section class="settings-panel" aria-labelledby="plans-title"><h2 id="plans-title">Monthly plans</h2><p>Sociobot runs checkout. Dodo is the payment processor in test mode. Card details never reach Reminder Proof.</p><div class="plan-list"><label><input type="radio" name="billing-tier" value="clinic" bind:group={selectedBillingTier} /><span><strong>Clinic · $79 per location each month</strong><small>1 location · 3 staff · 12-month proof ledger</small></span></label><label><input type="radio" name="billing-tier" value="practice" bind:group={selectedBillingTier} /><span><strong>Practice · $199 each month</strong><small>Up to 3 locations · 10 staff · 24-month proof ledger</small></span></label><label><input type="radio" name="billing-tier" value="network" bind:group={selectedBillingTier} /><span><strong>Network · $499 each month</strong><small>Up to 10 locations · 30 staff · 36-month proof ledger</small></span></label></div><p><strong>Current status:</strong> {clinic.subscription.status ?? 'No subscription'}</p><button class="button primary" onclick={() => startCheckout()} disabled={busy}>Open Sociobot test checkout</button><p class="fine-print">Use Dodo test card 4242 4242 4242 4242. Messaging-provider fees are separate.</p></section>
+      {:else}
+        <section class="settings-panel" aria-labelledby="data-title"><h2 id="data-title">Export or delete clinic data</h2><p>Exports include this clinic’s settings, staff roles, reminder evidence, and exceptions.</p><div class="data-actions"><button class="button secondary" onclick={exportClinic}>Export clinic data</button>{#if clinic.deletion}<button class="button secondary" onclick={cancelDeletion}>Cancel clinic deletion</button><span>Deletion is scheduled. You can cancel before {new Date(clinic.deletion.cancel_until * 1000).toLocaleDateString()}.</span>{:else}<button class="text-button danger-action" onclick={scheduleDeletion}>Schedule clinic deletion</button><span>Deletion waits seven days. During that time, an owner can cancel it.</span>{/if}</div></section>
+      {/if}
+    </section>
   {:else if pagePath === '/app' || pagePath === '/auth/callback'}
     <section class="app-page real-page" aria-labelledby="page-title">
       <div class="page-heading"><div><p class="eyebrow">Managed clinic workspace</p><h1 id="page-title" tabindex="-1">Clinic reminder ledger</h1><p>Calendar intake, approved dispatch, receipts, and exceptions are stored for your signed-in clinic.</p></div>{#if account}<button class="text-button" onclick={signOut}>Sign out</button>{/if}</div>
@@ -619,14 +746,9 @@
       {#if !authReady || loading}<div class="state-panel" role="status">Loading your secure clinic workspace…</div>
       {:else if !account}<div class="state-panel"><h2>Sign in to continue</h2><p>Clinic data is never available through the public demo.</p><button class="button primary" onclick={signIn}>Sign in with Microsoft</button></div>
       {:else if !clinic}
-        <form class="setup-form" onsubmit={saveClinic}>
-          <div><h2>Create your clinic workspace</h2><p>This managed workspace belongs to your Entra identity.</p></div>
-          <label>Clinic name<input name="clinic_name" required maxlength="100" autocomplete="organization" /></label>
-          <label>Location name<input name="location_name" required maxlength="100" /></label>
-          <label>Timezone<input name="timezone" required maxlength="64" value="Europe/London" aria-describedby="timezone-help" /><small id="timezone-help">Use an IANA timezone such as Europe/London.</small></label>
-          <button class="button primary" disabled={busy}>Create clinic workspace</button>
-        </form>
+        <div class="state-panel"><h2>Create your clinic workspace</h2><p>Set the clinic, location, retention, and staff access in three short steps.</p><a class="button primary" href="/onboarding/clinic" onclick={(event) => follow(event, '/onboarding/clinic')}>Start clinic setup</a></div>
       {:else}
+        <nav class="settings-nav" aria-label="Clinic areas"><a href="/app/settings/members" onclick={(event) => follow(event, '/app/settings/members')}>Staff access</a><a href="/app/settings/billing" onclick={(event) => follow(event, '/app/settings/billing')}>Plan and billing</a><a href="/app/settings/privacy" onclick={(event) => follow(event, '/app/settings/privacy')}>Data controls</a></nav>
         <div class="summary-grid" aria-label="Clinic reminder summary"><div><span>Reminders</span><strong>{clinic.reminders.length}</strong><small>from the connector</small></div><div><span>Messaging proof</span><strong>{clinic.reminders.filter((item) => ['delivered', 'read'].includes(item.status)).length}</strong><small>terminal receipts</small></div><div><span>Exceptions</span><strong>{clinic.reminders.filter((item) => item.exception && item.exception.state !== 'resolved').length}</strong><small>need a person</small></div></div>
         <section class="setup-columns" aria-label="Clinic connection setup">
           <form class="setup-form" onsubmit={saveConnector}><div><p class="eyebrow">Source</p><h2>Signed calendar connector</h2><p>Your EMR or calendar posts appointments through a signed HTTPS request.</p></div><label>Signing secret<input name="webhook_secret" type="password" minlength="16" maxlength="200" required autocomplete="new-password" /></label><button class="button secondary" disabled={busy}>Create connector</button>{#if clinic.connector}<p class="config-proof"><strong>Connected:</strong> {clinic.connector.id}</p>{/if}{#if connectorSecret}<p class="state-notice warning"><strong>Copy now:</strong> {connectorSecret}</p>{/if}</form>
@@ -635,8 +757,7 @@
         <section class="ledger-panel" aria-labelledby="clinic-ledger-title"><div class="panel-heading"><div><p class="eyebrow">Delivery ledger</p><h2 id="clinic-ledger-title">Real reminder evidence</h2></div><span>{clinic.location_name} · {clinic.timezone}</span></div>
           {#if clinic.reminders.length === 0}<div class="state-panel"><h3>No appointments received</h3><p>Connect your source and send its first signed appointment batch.</p></div>{:else}<ul class="real-list">{#each clinic.reminders as reminder}<li><div><strong>{reminder.appointment_time} · {reminder.patient_alias}</strong><span>{reminder.source_id}</span></div><div><strong>{statusLabel(reminder.status)}</strong><span>{reminder.timeline.at(-1)?.outcome}</span></div><div>{reminder.channels.map((item) => `${item.channel}: ${item.consent}`).join(' → ')}</div><button class="button secondary" onclick={() => dispatchReminder(reminder.id)} disabled={busy || reminder.status !== 'scheduled'}>Dispatch approved reminder</button>{#if reminder.exception}<label>Exception owner<input value={reminder.exception.owner ?? ''} aria-label={`Exception owner for ${reminder.patient_alias}`} onblur={(event) => saveException(reminder.exception!.id, 'assign', event.currentTarget.value)} /></label>{#if reminder.exception.owner && reminder.exception.state !== 'resolved'}<button class="text-button" onclick={() => saveException(reminder.exception!.id, 'resolve', 'Called patient')}>Resolve as Called patient</button>{/if}{/if}</li>{/each}</ul>{/if}
         </section>
-        <section class="billing-panel" aria-labelledby="billing-title"><div><p class="eyebrow">Subscription</p><h2 id="billing-title">Clinic plan</h2><p>$79 per location each month. Messaging-provider fees are separate. Checkout and subscription status are handled by Sociobot.</p><p><strong>Status:</strong> {clinic.subscription.status === 'active' ? 'Active' : 'Required before live dispatch'}</p></div><button class="button primary" onclick={startCheckout} disabled={busy}>Subscribe through Sociobot <span class="sr-only">(opens Sociobot checkout)</span></button></section>
-        <div class="data-actions"><button class="text-button" onclick={exportClinic}>Export clinic data</button><button class="text-button danger-action" onclick={deleteClinic}>Delete clinic workspace</button><span>Export includes minimized reminder evidence and exceptions.</span></div>
+        <section class="billing-panel" aria-labelledby="billing-title"><div><p class="eyebrow">Subscription</p><h2 id="billing-title">Clinic plan</h2><p>$79 per location each month. Messaging-provider fees are separate. Checkout and subscription status are handled by Sociobot.</p><p><strong>Status:</strong> {clinic.subscription.status === 'active' ? 'Active' : 'Required before live dispatch'}</p></div><a class="button primary" href="/app/settings/billing" onclick={(event) => follow(event, '/app/settings/billing')}>Choose a monthly plan</a></section>
       {/if}
     </section>
   {:else if pagePath === '/privacy'}
