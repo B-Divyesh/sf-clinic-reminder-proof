@@ -1,6 +1,6 @@
 # Reminder Proof venture plan
 
-Status: **M2 implemented and locally verified — independent review/polish pending**
+Status: **M2 deployed and verified — independent review/polish pending; pilot billing enablement blocked externally**
 
 Product slug: `clinic-reminder-proof`
 
@@ -365,7 +365,7 @@ The executable M1 contract is `.factory/claims.json`: `demo-isolation`, `sample-
 
 ### M2 — Accounts, durable clinic data, and subscriptions
 
-**Status:** implemented and locally verified on 2026-08-30 — independent review/polish pending; pilot catalog enablement remains operator action
+**Status:** deployed and verified on 2026-08-30 — independent review/polish pending; pilot catalog enablement remains operator action
 
 **Outcome:** A clinic owner can sign in, create an isolated organization and location, complete safe onboarding, choose a monthly plan in Sociobot checkout, and return to durable account data.
 

@@ -1,30 +1,27 @@
-# Review 4 handoff — Reminder Proof
+# M2 handoff — Reminder Proof
 
 Date: 2026-08-30 UTC
-Work order: `clinic-reminder-proof-review-4`
-Repository reviewed: `759fb58c7476baa94dfc3a28b708f1be1871a245`
+
+Work order: `venture-clinic-reminder-proof-m2`
+
 Production URL: <https://clinic-reminder-proof.sociobot.in>
 
-## Status: PASS
+## Status
 
-No product code was modified. The review report is `.factory/review-4.md`.
+M2 application work is deployed and verified. Independent review/polish and external Sociobot pilot-catalog enablement remain before the milestone can be marked complete.
 
-## Completed
+## Delivered
 
-- Reviewed the live product cold at 390 px and desktop before scrolling.
-- Verified the one-click populated demo, banner, reset, isolated storage, and
-  same-origin request log.
-- Read every earlier review, polish record, and handoff; all prior findings are
-  still fixed in live behavior and source.
-- Ran all 31 claim commands separately from a fresh local clone.
-- Ran `npm test` successfully: 21 Vitest, 34 Rust, and 40 Chromium tests.
-- Ran `npm run check` successfully: zero Svelte diagnostics, rustfmt, and
-  Clippy with warnings denied.
-- Ran `npm run build` successfully: `dist/` and the release API binary exist.
-- Crawled live public and demo routes, metadata, legal links, 404 behavior,
-  robots, sitemap, request/security headers, and the external factory link.
+- Real shared-tenant Entra CIAM PKCE sign-in and strict backend JWT/JWKS validation.
+- Reversible normalized SQLite account migrations, tenant/role boundaries, durable backup pairs, and one-replica deployment enforcement.
+- Clinic, location, jurisdiction, retention, and staff onboarding.
+- Three monthly plan choices wired through a rate-limited same-origin API to the Sociobot pilot gateway, with encrypted entitlements and complete subscription-state handling.
+- Owner export and audited, cancellable seven-day account deletion.
+- Six M2 claim tests, route-specific titles, mobile/keyboard/axe coverage, and an unchanged isolated demo.
 
-## How to verify
+The planned PostgreSQL database was corrected to single-writer SQLite because the factory runtime supplies only `PORT`. `.factory/plan.md` records the reason and requires PostgreSQL before scaling beyond one replica.
+
+## Verification
 
 ```sh
 npm ci
@@ -33,11 +30,14 @@ npm run check
 npm run build
 ```
 
-Open <https://clinic-reminder-proof.sociobot.in/?demo=1> for the direct sample
-entry point.
+Fresh-clone results: 21 Vitest, 41 Rust, and 47 Chromium tests passed. All 37 claim commands passed separately. The live deployment verifier confirmed one replica, durable mounts, exact build identity, `429` plus `Retry-After`, and 100% traffic to the healthy revision.
 
-## Known gaps
+Cold live checks passed for the landing page, demo, and all M2 routes with no console errors or serious/critical axe findings. Lighthouse mobile scored 99 Performance and 100 Accessibility, Best Practices, and SEO; LCP was 1.5 s and CLS 0.001.
 
-None found in this review. The review did not use real clinic credentials,
-patient data, messaging-provider credentials, or payment; fixture-backed claim
-tests cover those protected paths.
+## Needs operator action
+
+Enable `clinic-reminder-proof` and its Clinic, Practice, and Network recurring tiers in the Sociobot pilot billing catalog. The gateway currently returns 404 `enabled factory product`, so a real hosted test checkout cannot complete. After enablement, run one pilot subscription, return, cancellation, and revocation flow.
+
+No customer credentials were available for an interactive Entra login. CIAM discovery, the registered production callback, PKCE wiring, and backend validation were verified without bypassing authentication.
+
+Detailed evidence and M3 requirements are in `.factory/handoff-m2.md`.
