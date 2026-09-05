@@ -365,7 +365,7 @@ The executable M1 contract is `.factory/claims.json`: `demo-isolation`, `sample-
 
 ### M2 — Accounts, durable clinic data, and subscriptions
 
-**Status:** deployed and verified on 2026-08-30 — independent review/polish pending; pilot catalog enablement remains operator action
+**Status:** deployed and repair-verified on 2026-09-05 — the demo reset no longer consumes the new-demo rate allowance; independent review/polish and pilot catalog enablement remain operator actions
 
 **Outcome:** A clinic owner can sign in, create an isolated organization and location, complete safe onboarding, choose a monthly plan in Sociobot checkout, and return to durable account data.
 
