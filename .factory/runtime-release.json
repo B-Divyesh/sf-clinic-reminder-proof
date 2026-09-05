@@ -1,5 +1,5 @@
 {
-  "implementation_sha": "1e543b6d6d25997267a1af48586f17609d3b0eeb",
-  "image": "sociobotregistry.azurecr.io/sf-clinic-reminder-proof@sha256:cb3684c090e566fc46864c3617b66e203043f5a00f5f029f174580fc682a5e3b",
-  "revision": "sf-clinic-reminder-proof--0000069"
+  "implementation_sha": "ffebafb4a2d6c243424f0750f6c18c1b840df079",
+  "image": "sociobotregistry.azurecr.io/sf-clinic-reminder-proof@sha256:b93cad45e9dcde5e2e2ac9316e066d73db6b5de0480a9c5b19a7ae1f7d50c50f",
+  "revision": "sf-clinic-reminder-proof--0000070"
 }

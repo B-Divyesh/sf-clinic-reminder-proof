@@ -15,10 +15,10 @@ not accepted as a purchasable live-dispatch release.
 
 ## Release identity
 
-- Implementation commit: `1e543b6d6d25997267a1af48586f17609d3b0eeb`
-- Documentation baseline reviewed before this repair: `91f56aa6591358192569074303fda1e93679cc88`
-- Live revision: `sf-clinic-reminder-proof--0000069`
-- Live image: `sociobotregistry.azurecr.io/sf-clinic-reminder-proof@sha256:cb3684c090e566fc46864c3617b66e203043f5a00f5f029f174580fc682a5e3b`
+- Implementation commit: `ffebafb4a2d6c243424f0750f6c18c1b840df079`
+- Documentation baseline before the reset repair: `6e572bd4e39913bf811e2994d14b4ca28782840a`
+- Live revision: `sf-clinic-reminder-proof--0000070`
+- Live image: `sociobotregistry.azurecr.io/sf-clinic-reminder-proof@sha256:b93cad45e9dcde5e2e2ac9316e066d73db6b5de0480a9c5b19a7ae1f7d50c50f`
 
 The implementation and documentation records are intentionally separate. The
 footer and `/health` report the implementation SHA. Documentation-only commits
@@ -37,11 +37,15 @@ current deployment verifier bound to the implementation SHA.
   `clinic-data` at `/data` plus `clinic-backups` at `/backups`.
 - Added a runtime-release record so the topology claim can verify the deployed
   implementation when later commits contain evidence only.
+- Fixed the demo reset path. Resetting a fictional sample previously consumed
+  the five-per-hour *new demo* allowance, so repeated resets could receive a
+  429. Reset now always reseeds the sample without reducing that allowance;
+  the creation limit remains five per client per hour.
 
 ## Verification
 
 - `npm ci` passed with zero reported vulnerabilities.
-- `npm test` passed: 22 Vitest contracts, 42 Rust tests, and 47 Playwright
+- `npm test` passed: 22 Vitest contracts, 43 Rust tests, and 47 Playwright
   browser tests.
 - `npm run check` passed with zero Svelte diagnostics, clean rustfmt, and
   Clippy warnings denied.
@@ -52,9 +56,14 @@ current deployment verifier bound to the implementation SHA.
 - `npm run verify:deployment:current` passed against revision `0000069`. It
   confirmed the digest, health SHA, footer build identity, one replica, both
   Azure Files mounts, and the live rate-limit boundary.
-- `/health` returned the implementation SHA. Fresh desktop and 390 px phone
+- After revision `0000070` was ready, `/health` returned
+  `ffebafb4a2d6c243424f0750f6c18c1b840df079`. Fresh desktop and 390 px phone
   sessions showed the job, audience, action, and three facts before scrolling.
-  They had no console errors.
+  In each, one click opened a five-reminder sample, advancing showed four due,
+  three delivered, and one exception; assignment and resolution survived a
+  reload; Reset demo restored four due, one delivered, and one exception. The
+  persistent sample label remained visible. Requests stayed same-origin, no
+  real-data storage namespace appeared, and there were no console errors.
 - The live mount binding remained `clinic-data` → `/data` and
   `clinic-backups` → `/backups`. The durable share's existing key file was
   present after redeploy. No clinic workspace exists on the live share, so no

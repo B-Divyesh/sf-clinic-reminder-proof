@@ -63,6 +63,22 @@ The pilot checkout dependency was intentionally retained. The public Clinic
 offer is $79 per location each month; the pilot catalog still needs all three
 recurring tiers registered before a clinic can pay and activate live dispatch.
 
+## M2 build 1 reset repair
+
+Implementation `ffebafb4a2d6c243424f0750f6c18c1b840df079` fixed a live demo
+recovery defect found during the repair verification. Resetting sample data had
+incorrectly counted as a new-demo allocation, which could make Reset demo
+return `429` after repeated use. Reset now reseeds a new fictional session
+without consuming the five-per-hour new-demo allowance. The outcome regression
+creates five allowed demos around ten resets and confirms only a sixth new demo
+is limited.
+
+It is deployed in revision `sf-clinic-reminder-proof--0000070` as
+`sociobotregistry.azurecr.io/sf-clinic-reminder-proof@sha256:b93cad45e9dcde5e2e2ac9316e066d73db6b5de0480a9c5b19a7ae1f7d50c50f`.
+Fresh desktop and 390 px phone browsers each completed the one-click sample,
+advance, assign, resolve, reload, and reset journey with no console errors or
+third-party requests. The pilot billing dependency is unchanged.
+
 ## What M3 needs
 
 1. Run the independent M2 review and polish loop before marking M2 complete.
