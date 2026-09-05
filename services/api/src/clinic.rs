@@ -477,10 +477,10 @@ impl ClinicState {
                     dir.join("backups")
                 }
             });
-        let mut required_mounts = vec![dir.as_path()];
-        if durable != dir {
-            required_mounts.push(durable.as_path());
-        }
+        // The active SQLite file is local to the only allowed replica. The
+        // matching durable pair and daily backup must be on Azure Files.
+        // Direct SQLite-on-SMB locking is not reliable during ACA rollouts.
+        let mut required_mounts = vec![durable.as_path()];
         required_mounts.push(backups.as_path());
         ensure_required_storage_mounts(&required_mounts)?;
         Self::new(dir, durable, backups, AuthService::from_env(), None, None)

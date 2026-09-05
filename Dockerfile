@@ -32,7 +32,11 @@ COPY --from=api-build /source/target/release/reminder-proof-api /usr/local/bin/r
 COPY --from=web-build /source/dist ./dist
 USER reminderproof
 ENV PORT=8080
-ENV DATA_DIR=/data
+# SQLite's working file stays on the single container's local disk. Every
+# acknowledged change writes a matching recovery pair to the Azure Files share
+# at /data; startup restores that pair before serving. SQLite byte locks are
+# not reliable when its active database itself is opened through SMB.
+ENV DATA_DIR=/tmp/reminder-proof-data
 ENV DURABLE_DIR=/data
 ENV BACKUP_DIR=/backups
 ENV REQUIRE_DURABLE_MOUNTS=1

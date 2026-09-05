@@ -34,7 +34,7 @@ npm run build:web
 npm run dev:api             # Same-origin app server on http://127.0.0.1:8080
 ```
 
-The API requires no configuration and uses `PORT` (default `8080`). The single-replica SQLite writer runs on the durable `/data` mount. M2 adds reversible migrations for accounts, clinics, locations, roles, subscriptions, audit events, preferences, and exports. Each saved change writes a matching durable database and key under `DURABLE_DIR`. A daily recovery copy is kept under `BACKUP_DIR` for 30 days. Startup restores the durable pair before serving. Entra tenant settings may override the documented Sociobot defaults.
+The API requires no configuration and uses `PORT` (default `8080`). The single-replica SQLite writer synchronizes each saved change to durable `/data`. M2 adds reversible migrations for accounts, clinics, locations, roles, subscriptions, audit events, preferences, and exports. Each saved change writes a matching durable database and key under `DURABLE_DIR`. A daily recovery copy is kept under `BACKUP_DIR` for 30 days. Startup restores the durable pair before serving. Entra tenant settings may override the documented Sociobot defaults.
 
 Billing defaults to the live Sociobot pilot gateway and Dodo test mode. Set `SOCIOBOT_BILLING_BASE_URL` only to change the gateway. The Clinic, Practice, and Network choices are allowlisted on the server. The pilot product must be enabled by a factory operator before checkout can finish.
 

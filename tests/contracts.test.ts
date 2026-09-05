@@ -119,7 +119,7 @@ describe('planning scaffold contracts', () => {
       'A signed calendar/EMR connection stores each appointment once, even when it receives the same update twice.',
       'The site includes pulse-ledger art, a favicon, a touch icon, a social card, and self-hosted Instrument Sans and Fragment Mono fonts.',
       'It includes rate limits, health checks, and machine-readable metrics.',
-      'Each saved change writes a matching durable database and key under `DURABLE_DIR`.',
+      'The single-replica SQLite writer synchronizes each saved change to durable `/data`.',
       'A daily recovery copy is kept under `BACKUP_DIR` for 30 days.',
       'The durable data share mounts at `/data`; the separate backup share mounts at `/backups`.',
       'The production image refuses to start when a required data or backup mount is missing.',

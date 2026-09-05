@@ -101,7 +101,7 @@ Headings, inventory statements, and every prose sentence are included. Commands 
 | 10 | The API requires no configuration and uses `PORT` (default `8080`). | Pass |
 | 10 | The single-replica SQLite writer runs on the durable `/data` mount. | Pass |
 | 16 | M2 adds reversible migrations for accounts, clinics, locations, roles, subscriptions, audit events, preferences, and exports. | Pass; `durable-onboarding` |
-| 12 | Each saved change writes a matching durable database and key under `DURABLE_DIR`. | Pass; F-1-7 |
+| 12 | The single-replica SQLite writer synchronizes each saved change to durable `/data`. | Pass; F-1-7 |
 | 11 | A daily recovery copy is kept under `BACKUP_DIR` for 30 days. | Pass; F-1-7 |
 | 7 | Startup restores the durable pair before serving. | Pass |
 | 9 | Entra tenant settings may override the documented Sociobot defaults. | Pass |
