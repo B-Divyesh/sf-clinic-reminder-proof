@@ -9,9 +9,9 @@ for SQLite and the in-process per-client rate limiter. Do not raise
 `deployment/containerapp.json` attaches two ReadWrite Azure Files shares
 directly to the non-root application process:
 
-- `clinic-reminder-proof-data` mounts at `/data` for the active SQLite database
-  and generated AES-256 key. The same share also mounts at `/durable` to retain
-  the matching online recovery snapshot used by the existing restore path.
+- `clinic-reminder-proof-data` mounts at `/data` for the active SQLite database,
+  generated AES-256 key, and matching online recovery snapshot. The database
+  share is mounted once, so SQLite has one SMB lock view during a revision handoff.
 - `clinic-reminder-proof-backups` at `/backups` holds the latest consistent
   database backup and matching key.
 

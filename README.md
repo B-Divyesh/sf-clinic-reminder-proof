@@ -38,9 +38,9 @@ The API requires no configuration and uses `PORT` (default `8080`). The single-r
 
 Billing defaults to the live Sociobot pilot gateway and Dodo test mode. Set `SOCIOBOT_BILLING_BASE_URL` only to change the gateway. The Clinic, Practice, and Network choices are allowlisted on the server. The pilot product must be enabled by a factory operator before checkout can finish.
 
-The production container pins the app to one replica so SQLite and demo-creation limits have one state owner. The data share mounts at `/data` and `/durable`; the backup share mounts at `/backups`. The application runs without root privileges. The service keys limits from the final valid forwarding hop appended by ingress, not a caller-supplied prefix. Recovery steps and the restore regression are documented in [`.factory/operations.md`](.factory/operations.md). Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Sociobot Entra SPA before sign-in is opened to clinics.
+The production container pins the app to one replica so SQLite and demo-creation limits have one state owner. The durable data share mounts at `/data`; the separate backup share mounts at `/backups`. The application runs without root privileges. The service keys limits from the final valid forwarding hop appended by ingress, not a caller-supplied prefix. Recovery steps and the restore regression are documented in [`.factory/operations.md`](.factory/operations.md). Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Sociobot Entra SPA before sign-in is opened to clinics.
 
-The production image refuses to start when a required data, recovery, or backup mount is missing. Commit and push the final handoff before running `npm run deploy:container -- --image <registry/image:full-commit>`. The command rejects dirty, unpublished, short-tagged, or mismatched candidates. It reapplies the checked-in mounts and one-replica boundary. It waits until that exact healthy revision has all traffic and serves its health and footer build identity. After deployment, run `npm run verify:deployment:current` with Azure access. It checks the active revision, mounts, replica count, public identity, and six-request rate limit.
+The production image refuses to start when a required data or backup mount is missing. Commit and push the final handoff before running `npm run deploy:container -- --image <registry/image:full-commit>`. The command rejects dirty, unpublished, short-tagged, or mismatched candidates. It reapplies the checked-in mounts and one-replica boundary. It waits until that exact healthy revision has all traffic and serves its health and footer build identity. After deployment, run `npm run verify:deployment:current` with Azure access. It checks the active revision, mounts, replica count, public identity, and six-request rate limit.
 
 ## Clinic integration contract
 
@@ -75,7 +75,7 @@ The multi-stage `Dockerfile` builds the web output and API without Git metadata,
 
 ```sh
 docker build --build-arg BUILD_SHA=local -t reminder-proof .
-docker run --rm -p 8080:8080 -v reminder-data:/data -v reminder-data:/durable -v reminder-backups:/backups reminder-proof
+docker run --rm -p 8080:8080 -v reminder-data:/data -v reminder-backups:/backups reminder-proof
 curl http://127.0.0.1:8080/health
 ```
 

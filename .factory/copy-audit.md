@@ -110,7 +110,7 @@ Headings, inventory statements, and every prose sentence are included. Commands 
 | 12 | The Clinic, Practice, and Network choices are allowlisted on the server. | Pass; `subscription-price` |
 | 13 | The pilot product must be enabled by a factory operator before checkout can finish. | Pass; honest external dependency |
 | 18 | The production container pins the app to one replica so SQLite and demo-creation limits have one state owner. | Pass |
-| 13 | The data share mounts at `/data` and `/durable`; the backup share mounts at `/backups`. | Pass; F-1-8 |
+| 13 | The durable data share mounts at `/data`; the separate backup share mounts at `/backups`. | Pass; F-1-8 |
 | 6 | The application runs without root privileges. | Pass; F-1-8 |
 | 10 | Recovery steps and the restore regression are documented in `.factory/operations.md`. | Pass |
 | 14 | Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Sociobot Entra SPA before sign-in is opened to clinics. | Pass |

@@ -121,8 +121,8 @@ describe('planning scaffold contracts', () => {
       'It includes rate limits, health checks, and machine-readable metrics.',
       'Each saved change writes a matching durable database and key under `DURABLE_DIR`.',
       'A daily recovery copy is kept under `BACKUP_DIR` for 30 days.',
-      'The data share mounts at `/data` and `/durable`; the backup share mounts at `/backups`.',
-      'The production image refuses to start when a required data, recovery, or backup mount is missing.',
+      'The durable data share mounts at `/data`; the separate backup share mounts at `/backups`.',
+      'The production image refuses to start when a required data or backup mount is missing.',
       'The application runs without root privileges.'
     ];
     for (const sentence of required) {
@@ -200,10 +200,12 @@ describe('planning scaffold contracts', () => {
       resources: { cpu: 0.5, memory: '1Gi' },
       volumeMounts: [
         { volumeName: 'clinic-data', mountPath: '/data' },
-        { volumeName: 'clinic-data', mountPath: '/durable' },
         { volumeName: 'clinic-backups', mountPath: '/backups' }
       ]
     });
+    expect(template.containers[0].volumeMounts.filter((mount) => mount.volumeName === 'clinic-data')).toEqual([
+      { volumeName: 'clinic-data', mountPath: '/data' }
+    ]);
   });
 
   test('@regression:qa13-01 a healthy durable revision at zero traffic cannot complete deployment', () => {
@@ -377,7 +379,6 @@ describe('planning scaffold contracts', () => {
         image: fullImage,
         volumeMounts: [
           { volumeName: 'clinic-data', mountPath: '/data' },
-          { volumeName: 'clinic-data', mountPath: '/durable' },
           { volumeName: 'clinic-backups', mountPath: '/backups' }
         ]
       }]
@@ -486,7 +487,6 @@ describe('planning scaffold contracts', () => {
         image: fullImage,
         volumeMounts: [
           { volumeName: 'clinic-data', mountPath: '/data' },
-          { volumeName: 'clinic-data', mountPath: '/durable' },
           { volumeName: 'clinic-backups', mountPath: '/backups' }
         ]
       }]
@@ -575,7 +575,6 @@ describe('planning scaffold contracts', () => {
         resources: { cpu: 0.5, memory: '1Gi' },
         volumeMounts: [
           { volumeName: 'clinic-data', mountPath: '/data' },
-          { volumeName: 'clinic-data', mountPath: '/durable' },
           { volumeName: 'clinic-backups', mountPath: '/backups' }
         ]
       }]

@@ -459,7 +459,11 @@ impl ClinicState {
             .map(PathBuf::from)
             .unwrap_or_else(|| {
                 if dir == Path::new("/data") {
-                    PathBuf::from("/durable")
+                    // Keep SQLite and its matching recovery pair inside one
+                    // Azure Files mount. Mounting one SMB share twice creates
+                    // distinct lock views and can leave SQLite locked during a
+                    // one-replica revision handoff.
+                    PathBuf::from("/data")
                 } else {
                     dir.join("durable")
                 }
@@ -473,7 +477,12 @@ impl ClinicState {
                     dir.join("backups")
                 }
             });
-        ensure_required_storage_mounts(&[dir.as_path(), durable.as_path(), backups.as_path()])?;
+        let mut required_mounts = vec![dir.as_path()];
+        if durable != dir {
+            required_mounts.push(durable.as_path());
+        }
+        required_mounts.push(backups.as_path());
+        ensure_required_storage_mounts(&required_mounts)?;
         Self::new(dir, durable, backups, AuthService::from_env(), None, None)
     }
 
@@ -2936,24 +2945,18 @@ mod tests {
     use tower::ServiceExt;
 
     #[test]
-    fn production_storage_guard_requires_data_durable_and_backup_azure_file_mounts() {
-        let mount_info = "31 22 0:29 / / rw,relatime - overlay overlay rw\n41 31 0:60 / /data rw,relatime - cifs //storage/data rw\n42 31 0:61 / /durable rw,relatime - cifs //storage/data rw\n43 31 0:62 / /backups rw,relatime - cifs //storage/backups rw\n";
-        assert!(missing_required_mounts(
-            mount_info,
-            &[
-                Path::new("/data"),
-                Path::new("/durable"),
-                Path::new("/backups"),
-            ]
-        )
-        .is_empty());
+    fn production_storage_guard_requires_data_and_backup_azure_file_mounts() {
+        let mount_info = "31 22 0:29 / / rw,relatime - overlay overlay rw\n41 31 0:60 / /data rw,relatime - cifs //storage/data rw\n43 31 0:62 / /backups rw,relatime - cifs //storage/backups rw\n";
+        assert!(
+            missing_required_mounts(mount_info, &[Path::new("/data"), Path::new("/backups"),])
+                .is_empty()
+        );
 
         assert_eq!(
             missing_required_mounts(
-                "31 22 0:29 / / rw,relatime - overlay overlay rw\n41 31 0:60 / /data rw,relatime - cifs //storage/data rw\n42 31 0:61 / /durable rw,relatime - cifs //storage/data rw\n",
+                "31 22 0:29 / / rw,relatime - overlay overlay rw\n41 31 0:60 / /data rw,relatime - cifs //storage/data rw\n",
                 &[
                     Path::new("/data"),
-                    Path::new("/durable"),
                     Path::new("/backups"),
                 ]
             ),

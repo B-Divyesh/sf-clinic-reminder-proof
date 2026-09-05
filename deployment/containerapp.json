@@ -10,10 +10,6 @@
               "mountPath": "/data"
             },
             {
-              "volumeName": "clinic-data",
-              "mountPath": "/durable"
-            },
-            {
               "volumeName": "clinic-backups",
               "mountPath": "/backups"
             }

@@ -75,7 +75,9 @@ test('@claim:single-replica-durable-topology The checked-in Container Apps templ
   ]));
   expect(template.containers[0].volumeMounts).toEqual(expect.arrayContaining([
     { volumeName: 'clinic-data', mountPath: '/data' },
-    { volumeName: 'clinic-data', mountPath: '/durable' },
     { volumeName: 'clinic-backups', mountPath: '/backups' }
   ]));
+  expect(template.containers[0].volumeMounts.filter((mount) => mount.volumeName === 'clinic-data')).toEqual([
+    { volumeName: 'clinic-data', mountPath: '/data' }
+  ]);
 });

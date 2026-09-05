@@ -31,7 +31,6 @@ export function validateTopology(document) {
   if (!app) throw new Error('deployment topology must configure the app container');
   for (const expected of [
     { volumeName: 'clinic-data', mountPath: '/data' },
-    { volumeName: 'clinic-data', mountPath: '/durable' },
     { volumeName: 'clinic-backups', mountPath: '/backups' }
   ]) {
     const mount = app.volumeMounts?.find(

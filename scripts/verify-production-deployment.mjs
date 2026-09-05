@@ -45,7 +45,6 @@ for (const expected of [
 const mounts = template?.containers?.find((container) => container.name === 'app')?.volumeMounts ?? [];
 for (const expected of [
   { volumeName: 'clinic-data', mountPath: '/data' },
-  { volumeName: 'clinic-data', mountPath: '/durable' },
   { volumeName: 'clinic-backups', mountPath: '/backups' }
 ]) {
   const mount = mounts.find(
