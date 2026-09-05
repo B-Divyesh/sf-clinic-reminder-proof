@@ -45,6 +45,7 @@ No Azure Files data, keys, or backups were deleted or overwritten by the repair.
 - Default runtime with only `PORT`: final build SHA returned from `/health`; 100 concurrent health requests all returned 200.
 - Full local claim coverage passed through the final browser/API suite. The fresh production topology claim was exercised by the successful `npm run verify:deployment:current` command above so its five-request public rate window was not reused.
 - `/opt/fleet/lib/verify-url.sh` passed against the cold production landing: 200, title, `lang=en`, one h1, main landmark, alt/control checks, and no console errors. Live Playwright axe found 0 violations, including 0 serious/critical issues.
+- Live mobile Lighthouse: 99 Performance, 100 Accessibility, 100 Best Practices, and 100 SEO; LCP 1.43 s and CLS 0.001.
 
 ## Known dependency
 
