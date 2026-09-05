@@ -184,9 +184,20 @@ impl DemoStore {
     pub async fn create(&self, client: &str) -> Result<(String, DemoData), ApiError> {
         self.check_limit(&format!("create:{client}"), 5, Duration::from_secs(60 * 60))
             .await?;
+        Ok(self.fresh_session())
+    }
+
+    /// A reset replaces the current fictional sample with a new fictional sample.
+    /// It is not a new public-demo allocation, so it must not consume the
+    /// per-client workspace-creation allowance.
+    pub fn reset(&self) -> (String, DemoData) {
+        self.fresh_session()
+    }
+
+    fn fresh_session(&self) -> (String, DemoData) {
         let session = DemoSession::new();
         let data = session.data();
-        Ok((session.encode(), data))
+        (session.encode(), data)
     }
 
     async fn check_limit(&self, key: &str, maximum: usize, span: Duration) -> Result<(), ApiError> {
@@ -613,7 +624,7 @@ pub async fn reset_workspace(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let _ = store.session(&headers)?;
-    let (cookie, data) = store.create(&client_ip(&headers)).await?;
+    let (cookie, data) = store.reset();
     Ok(demo_response(cookie, data))
 }
 
@@ -928,6 +939,23 @@ mod tests {
     async fn workspace_creation_limit_returns_429() {
         let store = DemoStore::new();
         for _ in 0..5 {
+            store.create("limit").await.unwrap();
+        }
+        let error = store.create("limit").await.unwrap_err();
+        assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn reset_does_not_consume_the_new_demo_allowance() {
+        let store = DemoStore::new();
+        store.create("limit").await.unwrap();
+
+        for _ in 0..10 {
+            let (_, data) = store.reset();
+            assert_eq!(data.clinic.name, "Northline Sample Clinic");
+        }
+
+        for _ in 0..4 {
             store.create("limit").await.unwrap();
         }
         let error = store.create("limit").await.unwrap_err();
