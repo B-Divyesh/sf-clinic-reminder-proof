@@ -1,11 +1,13 @@
 import { spawnSync } from 'node:child_process';
 import { validateTopology } from './containerapp-topology.mjs';
-import { assertImageMatchesBuildSha, fetchPublicBuildIdentity, normalizeBuildSha } from './deployment-identity.mjs';
+import { assertImmutableImageDigest, fetchPublicBuildIdentity, normalizeBuildSha } from './deployment-identity.mjs';
 import { createFreshTestClient } from './fresh-client-identity.mjs';
 
 const resourceGroup = process.env.REMINDER_PROOF_RESOURCE_GROUP ?? 'sociobot';
 const appName = process.env.REMINDER_PROOF_APP_NAME ?? 'sf-clinic-reminder-proof';
 const liveUrl = (process.env.REMINDER_PROOF_LIVE_URL ?? 'https://clinic-reminder-proof.sociobot.in').replace(/\/$/, '');
+const imageRepository = process.env.REMINDER_PROOF_IMAGE_REPOSITORY
+  ?? 'sociobotregistry.azurecr.io/sf-clinic-reminder-proof';
 const expectedBuildSha = process.env.EXPECTED_BUILD_SHA;
 
 function fail(message) {
@@ -65,7 +67,7 @@ validateTopology({ properties: { template: serving[0]?.properties?.template } })
 
 const image = serving[0]?.properties?.template?.containers?.find((container) => container.name === 'app')?.image;
 try {
-  assertImageMatchesBuildSha(image, expected);
+  assertImmutableImageDigest(image, imageRepository);
   await fetchPublicBuildIdentity(liveUrl, expected);
 } catch (error) {
   fail(error.message);

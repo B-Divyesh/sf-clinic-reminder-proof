@@ -3,7 +3,11 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import { effectiveConsent, foldReminderOutcome, stateCopy } from '../apps/web/src/lib/reminder';
 import { buildTopologyPatch, inspectRollout, validateTopology } from '../scripts/containerapp-topology.mjs';
-import { assertPublicBuildIdentity, buildShaFromImage } from '../scripts/deployment-identity.mjs';
+import {
+  assertImmutableImageDigest,
+  assertPublicBuildIdentity,
+  buildShaFromImage
+} from '../scripts/deployment-identity.mjs';
 import { createFreshTestClient } from '../scripts/fresh-client-identity.mjs';
 import {
   assertDeploymentImageMatchesSource,
@@ -252,6 +256,18 @@ describe('planning scaffold contracts', () => {
       .toThrow('container image tag must be a full 40-character Git commit SHA');
     expect(buildShaFromImage('sociobotregistry.azurecr.io/sf-clinic-reminder-proof:e16e61c4c300fe88b9b2705e890127566f89ca28'))
       .toBe('e16e61c4c300fe88b9b2705e890127566f89ca28');
+  });
+
+  test('@regression:qa23-01 deployment verification accepts only the fleet-resolved immutable image for this product', () => {
+    const repository = 'sociobotregistry.azurecr.io/sf-clinic-reminder-proof';
+    const digest = 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+
+    expect(assertImmutableImageDigest(`${repository}@${digest}`, repository))
+      .toBe(`${repository}@${digest}`);
+    expect(() => assertImmutableImageDigest(`${repository}:0123456789ab`, repository))
+      .toThrow('container image must use immutable digest from');
+    expect(() => assertImmutableImageDigest(`sociobotregistry.azurecr.io/other-product@${digest}`, repository))
+      .toThrow('container image must use immutable digest from');
   });
 
   test('@regression:qa14-02 public health and footer must identify the exact traffic revision', () => {

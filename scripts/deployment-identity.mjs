@@ -1,4 +1,5 @@
 const FULL_COMMIT_SHA = /^[a-f0-9]{40}$/i;
+const IMAGE_DIGEST = /^sha256:[a-f0-9]{64}$/i;
 
 export function normalizeBuildSha(value, description = 'build SHA') {
   if (typeof value !== 'string' || !FULL_COMMIT_SHA.test(value)) {
@@ -26,6 +27,31 @@ export function assertImageMatchesBuildSha(image, expectedBuildSha) {
     throw new Error(`container image tag must equal expected build SHA ${expected}, got ${imageBuildSha}`);
   }
   return expected;
+}
+
+/**
+ * The fleet resolves a source-tagged ACR build to a content-addressed image
+ * before it updates Container Apps. The runtime identity is checked separately
+ * through /health and the public footer; this check ensures Azure cannot keep
+ * following a mutable tag between those checks.
+ */
+export function assertImmutableImageDigest(image, expectedRepository) {
+  if (typeof expectedRepository !== 'string' || !expectedRepository.trim()) {
+    throw new Error('expected image repository is required');
+  }
+  if (typeof image !== 'string' || !image.trim()) {
+    throw new Error('container image is required');
+  }
+
+  const prefix = `${expectedRepository}@`;
+  if (!image.startsWith(prefix)) {
+    throw new Error(`container image must use immutable digest from ${expectedRepository}`);
+  }
+  const digest = image.slice(prefix.length);
+  if (!IMAGE_DIGEST.test(digest)) {
+    throw new Error('container image must use a sha256 manifest digest');
+  }
+  return `${expectedRepository}@${digest.toLowerCase()}`;
 }
 
 export function assertPublicBuildIdentity({ healthBody, frontEndSource }, expectedBuildSha) {
