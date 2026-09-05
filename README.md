@@ -40,7 +40,7 @@ Billing defaults to the live Sociobot pilot gateway and Dodo test mode. Set `SOC
 
 The production container pins the app to one replica so SQLite and demo-creation limits have one state owner. The durable data share mounts at `/data`; the separate backup share mounts at `/backups`. The application runs without root privileges. The service keys limits from the final valid forwarding hop appended by ingress, not a caller-supplied prefix. Recovery steps and the restore regression are documented in [`.factory/operations.md`](.factory/operations.md). Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Sociobot Entra SPA before sign-in is opened to clinics.
 
-The production image refuses to start when a required data or backup mount is missing. Commit and push the final handoff before running `npm run deploy:container -- --image <registry/image:full-commit>`. The command rejects dirty, unpublished, short-tagged, or mismatched candidates. It reapplies the checked-in mounts and one-replica boundary. It waits until that exact healthy revision has all traffic and serves its health and footer build identity. After deployment, run `npm run verify:deployment:current` with Azure access. It checks the active revision, mounts, replica count, public identity, and six-request rate limit.
+The production image refuses to start when a required data or backup mount is missing. Commit and push the final implementation before using the fleet wrapper. The wrapper resolves the ACR build to an immutable registry digest and preserves the existing mounts, probes, environment, and one-replica boundary. After deployment, run `npm run verify:deployment:current` with Azure access. It checks the active revision, immutable image, mounts, replica count, public identity, and six-request rate limit.
 
 ## Clinic integration contract
 
@@ -81,12 +81,12 @@ curl http://127.0.0.1:8080/health
 
 The factory deploys the container to `https://clinic-reminder-proof.sociobot.in`. Do not put messaging-provider keys, clinic data, payments, or Entra configuration in this repository.
 
-After pushing an image to the factory registry, deploy it with the checked-in
-topology rather than an image-only update:
+Use the fleet wrapper for the product deployment. It builds the committed
+source and resolves the result to an immutable registry digest:
 
 ```sh
 git push origin main
-npm run deploy:container -- --image sociobotregistry.azurecr.io/sf-clinic-reminder-proof:<full-HEAD-commit>
+/opt/fleet/lib/deploy-container.sh clinic-reminder-proof "$PWD" Dockerfile 8080
 npm run verify:deployment:current
 ```
 ## Privacy and terms

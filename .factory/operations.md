@@ -54,21 +54,17 @@ pair restore into a fresh data directory and reads the original clinic.
 
 ## Release topology check
 
-Commit the final handoff and push it to `origin/main`. Build that exact HEAD
-with its full 40-character commit as the tag, then use
-`npm run deploy:container -- --image <registry/image:full-commit>` for every
-Container Apps rollout. The command rejects short and mutable tags. The deploy command reads
-`deployment/containerapp.json` and patches the full revision template, so an
-image update cannot omit the required Azure Files mounts or increase the replica
-limit. It also rejects dirty or unpublished checkouts. It preserves
-factory-managed ingress, domains, identity, and app-level settings. In
-single-revision mode, it waits for Azure to promote that exact healthy revision
-as the only 100% traffic target, then checks `/health` and the landing footer
-for the same build identity.
+Commit and push the implementation before a rollout. Use
+`/opt/fleet/lib/deploy-container.sh clinic-reminder-proof "$PWD" Dockerfile
+8080`. The wrapper builds the committed source, resolves its ACR tag to an
+immutable manifest digest, and retains the existing volumes, probes,
+environment, and one-replica boundary. Do not use an image-only Container Apps
+update for this service.
 
-After each rollout, run `EXPECTED_BUILD_SHA=<full-commit> npm run
-verify:deployment` from this repository with Azure access. It fails unless the
-active revision has exactly one replica, all named Azure Files mounts, the
-exact public health and footer build identity, and a per-client demo creation
-boundary of five successful requests followed by 429 with
-`Retry-After`.
+After each rollout, run `npm run verify:deployment:current` from this
+repository with Azure access. It verifies the immutable digest, one active
+healthy replica, both named Azure Files mounts, matching public health/footer
+identity, and a per-client demo creation boundary of five successful requests
+followed by 429 with `Retry-After`. When an evidence-only commit follows an
+implementation commit, `.factory/runtime-release.json` names the implementation
+SHA that the verifier must expect.

@@ -1,6 +1,6 @@
 # Reminder Proof venture plan
 
-Status: **M2 deployed and verified — independent review/polish pending; pilot billing enablement blocked externally**
+Status: **M2 implementation deployed with an immutable image digest; pilot billing enablement remains blocked externally**
 
 Product slug: `clinic-reminder-proof`
 

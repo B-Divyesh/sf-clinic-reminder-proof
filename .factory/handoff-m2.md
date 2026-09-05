@@ -4,7 +4,7 @@ Work order: `venture-clinic-reminder-proof-m2`
 
 Date: 2026-08-30
 
-Status: implementation deployed and verified; independent review/polish pending. Pilot checkout remains blocked by external product-catalog enablement.
+Status: implementation deployed with immutable image verification. Pilot checkout remains blocked by external product-catalog enablement.
 
 ## What shipped
 
@@ -47,6 +47,21 @@ Cold production evidence at <https://clinic-reminder-proof.sociobot.in>:
 The live pilot gateway returns HTTP 404 with `{"error":"enabled factory product","status":404}` for `/api/v1/products/clinic-reminder-proof/checkout`. This work order has no billing-catalog credential or registration command. The factory must enable the slug and its three recurring tiers, then complete one hosted test subscription and cancellation using the pilot card. Until then, the app shows the gateway error and preserves read, export, and safety actions; it does not pretend checkout worked.
 
 No customer credentials were available for a full interactive Entra sign-in. Discovery, callback registration, frontend PKCE wiring, and backend token validation were verified without weakening authentication.
+
+## M2 build 1 deployment repair
+
+On 2026-09-05, implementation `1e543b6d6d25997267a1af48586f17609d3b0eeb`
+was built through the corrected fleet wrapper and deployed as
+`sociobotregistry.azurecr.io/sf-clinic-reminder-proof@sha256:cb3684c090e566fc46864c3617b66e203043f5a00f5f029f174580fc682a5e3b`.
+The active revision is `sf-clinic-reminder-proof--0000069`. It is healthy,
+solely traffic-bearing, and keeps the existing `clinic-data` `/data` and
+`clinic-backups` `/backups` mounts with exactly one replica. The local
+deployment verifier now checks that immutable digest form and passed against
+the public health/footer build identity and five-then-429 allowance.
+
+The pilot checkout dependency was intentionally retained. The public Clinic
+offer is $79 per location each month; the pilot catalog still needs all three
+recurring tiers registered before a clinic can pay and activate live dispatch.
 
 ## What M3 needs
 

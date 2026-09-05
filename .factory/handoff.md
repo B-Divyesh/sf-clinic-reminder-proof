@@ -1,79 +1,87 @@
-# Verification handoff — Reminder Proof
+# M2 deployment repair handoff — Reminder Proof
 
 Date: 2026-09-05 UTC
 
-Work order: `clinic-reminder-proof-verify-23`
+Work order: `clinic-reminder-proof-m2-build-1`
 
 Live URL: <https://clinic-reminder-proof.sociobot.in>
 
 ## Status
 
-**FAIL.** Independent verification found two release blockers and zero untested
-claims. The full report is [`.factory/verification-23.md`](verification-23.md).
+M2 remains the current milestone. The mutable-image finding is fixed. The
+production app now runs the implementation through an immutable ACR manifest
+digest. Pilot billing registration remains an external dependency, so M2 is
+not accepted as a purchasable live-dispatch release.
 
-Current milestone: M2 — accounts, durable clinic data, and subscriptions.
+## Release identity
 
-Implementation reviewed: `b58c17feaac9b3ffd9e6fc555036641066cd09ae`
+- Implementation commit: `1e543b6d6d25997267a1af48586f17609d3b0eeb`
+- Documentation baseline reviewed before this repair: `91f56aa6591358192569074303fda1e93679cc88`
+- Live revision: `sf-clinic-reminder-proof--0000069`
+- Live image: `sociobotregistry.azurecr.io/sf-clinic-reminder-proof@sha256:cb3684c090e566fc46864c3617b66e203043f5a00f5f029f174580fc682a5e3b`
 
-Documentation reviewed: `533c2cff265f4d3f063d0ac968a94c6669dba3fe`
+The implementation and documentation records are intentionally separate. The
+footer and `/health` report the implementation SHA. Documentation-only commits
+do not require a new product image; `.factory/runtime-release.json` keeps the
+current deployment verifier bound to the implementation SHA.
 
-## Findings
+## What changed
 
-1. The healthy active revision `0000068` uses short image tag `533c2cff265f`.
-   It has correct Single mode, one replica, `/data`, and `/backups`, but fails
-   the mandatory full-SHA deployment claim.
-2. The live service defaults to the Sociobot pilot billing gateway. Clinic,
-   Practice, and Network checkout each return 404 there, so M2 purchase and
-   subscription-gated dispatch cannot finish. The production gateway now
-   returns valid hosted-checkout redirects; the remaining pilot issue is an
-   external dependency.
+- Updated the deployment verifier to require the product's immutable ACR
+  digest instead of a mutable image tag. The regression rejects short tags and
+  other repositories.
+- Built and deployed the clean implementation with
+  `/opt/fleet/lib/deploy-container.sh`. The wrapper resolved the ACR build to
+  the digest above without changing the committed Dockerfile.
+- The active revision is in Single mode, has one running replica, and preserves
+  `clinic-data` at `/data` plus `clinic-backups` at `/backups`.
+- Added a runtime-release record so the topology claim can verify the deployed
+  implementation when later commits contain evidence only.
 
-## What passed
+## Verification
 
-- Fresh desktop and phone first-read and full sample/reset flows.
-- Persistent demo label, realistic five-record output, isolated storage, and
-  no third-party demo requests.
-- All 37 declared claim commands were run; 36 passed and the deployment claim
-  failed on the short tag. No claim was skipped.
-- `npm test`: 21 Vitest, 42 Rust, and 47 Chromium tests passed.
-- `npm run check` and the exact-implementation build passed.
-- Live light/dark axe: zero violations. Mobile Lighthouse: 100/100/100/100,
-  LCP 1.41 s, CLS 0.0007, TBT 31.5 ms.
-- Keyboard, focus, 200% text, reduced motion, offline read-only state, legal
-  pages, route titles, links, security headers, structured errors, and designed
-  HTTP 404 behavior passed.
-- Tenant isolation, restart recovery, signed intake/receipts, encryption,
-  export/deletion ownership, and backup retention passed fresh fixture tests.
-- Live 429 recovery included `Retry-After`; caller-supplied forwarding prefixes
-  no longer bypass the shared allowance.
+- `npm ci` passed with zero reported vulnerabilities.
+- `npm test` passed: 22 Vitest contracts, 42 Rust tests, and 47 Playwright
+  browser tests.
+- `npm run check` passed with zero Svelte diagnostics, clean rustfmt, and
+  Clippy warnings denied.
+- Full-SHA `npm run build` produced `dist/` and the release API binary. Initial
+  JavaScript was 31.82 KB gzip and CSS was 5.79 KB gzip.
+- All 37 exact commands in `.factory/claims.json` passed. The live topology
+  command observed `200, 200, 200, 200, 200, 429` and `Retry-After: 3599`.
+- `npm run verify:deployment:current` passed against revision `0000069`. It
+  confirmed the digest, health SHA, footer build identity, one replica, both
+  Azure Files mounts, and the live rate-limit boundary.
+- `/health` returned the implementation SHA. Fresh desktop and 390 px phone
+  sessions showed the job, audience, action, and three facts before scrolling.
+  They had no console errors.
+- The live mount binding remained `clinic-data` → `/data` and
+  `clinic-backups` → `/backups`. The durable share's existing key file was
+  present after redeploy. No clinic workspace exists on the live share, so no
+  customer record was read or changed for this check.
 
-## Candidate comparison
+## Pilot billing dependency
 
-The documentation SHA changes only this handoff relative to the implementation
-SHA. The live service reports documentation SHA `533c2cff…`. Its app bundle is
-the same length as the exact `b58c17fe…` build and is byte-identical after only
-the embedded build value is normalized. Product behavior therefore matches the
-implementation candidate, but the short active image tag remains noncompliant.
+The Clinic plan remains paid at **$79 per location each month**. Practice and
+Network remain paid monthly choices in M2. No paid deliverable was removed or
+made free.
 
-## Reproduce
+The live service defaults to the pilot Sociobot billing catalog. Its checkout
+for this product remains unavailable, so a new clinic cannot complete the paid
+activation required before real dispatch. This is an external catalog
+registration dependency, not a mock checkout. Public offer metadata is at
+`/work/.evidence/billing-offer.json`.
 
-```sh
-git checkout --detach 533c2cff265f4d3f063d0ac968a94c6669dba3fe
-npm ci
-npm test
-npm run check
-BUILD_SHA=b58c17feaac9b3ffd9e6fc555036641066cd09ae \
-GIT_SHA=b58c17feaac9b3ffd9e6fc555036641066cd09ae \
-SOURCE_COMMIT=b58c17feaac9b3ffd9e6fc555036641066cd09ae npm run build
-npm run verify:deployment:current
-```
+The operator must enable the three recurring pilot tiers, then complete an
+authorized test checkout, return, cancellation, and revocation check. Until
+then the app keeps free demo, read, export, and safety paths available and
+shows the billing-unavailable recovery state.
 
-## Required next steps
+## Known limits and next steps
 
-1. Redeploy the unchanged product with a full 40-character immutable image tag
-   and rerun the live deployment verifier after the allowance resets.
-2. Enable the three pilot billing tiers or complete the planned move to the
-   production catalog. Verify an authorized purchase return, cancellation, and
-   revocation before accepting M2.
-
-No product code or live configuration was changed by this verification.
+1. Enable the pilot billing catalog for Clinic, Practice, and Network. This is
+   required before M2 can claim a purchasable live-dispatch path.
+2. Run the authorized paid return, cancellation, and revocation journey after
+   registration. Do not use real patient data in the public demo.
+3. Before adding a second API or worker replica, move SQLite state and leases
+   to PostgreSQL as specified in the venture plan.
