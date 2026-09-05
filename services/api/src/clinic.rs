@@ -5,7 +5,7 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 #[cfg(unix)]
@@ -534,6 +534,13 @@ impl ClinicState {
         let key = load_or_create_key(&key_path)?;
         let connection = Connection::open(&database_path)
             .map_err(|error| format!("open clinic database: {error}"))?;
+        // A one-replica Container Apps revision is stopped before its
+        // replacement starts, but Azure Files can release the prior SMB lock
+        // a moment later. Waiting through that handoff keeps a safe rollout
+        // from failing closed and never bypasses SQLite's own lock protocol.
+        connection
+            .busy_timeout(Duration::from_secs(90))
+            .map_err(|error| format!("set clinic database busy timeout: {error}"))?;
         // SQLite honours the process umask on first creation. Make this
         // explicit because the database contains encrypted, but still
         // sensitive, patient-operation metadata.
@@ -2962,6 +2969,32 @@ mod tests {
             ),
             vec!["/backups"]
         );
+    }
+
+    #[test]
+    fn durable_store_waits_for_a_transient_sqlite_handoff_lock() {
+        let path = std::env::temp_dir().join(format!("reminder-proof-lock-{}", Uuid::new_v4()));
+        fs::create_dir_all(&path).unwrap();
+        let database = path.join("clinic-data.sqlite3");
+        let (ready_sender, ready_receiver) = std::sync::mpsc::channel();
+        let lock_holder = std::thread::spawn({
+            let database = database.clone();
+            move || {
+                let connection = Connection::open(database).unwrap();
+                connection.execute_batch("BEGIN EXCLUSIVE").unwrap();
+                ready_sender.send(()).unwrap();
+                std::thread::sleep(Duration::from_secs(6));
+                connection.execute_batch("COMMIT").unwrap();
+            }
+        });
+        ready_receiver.recv().unwrap();
+
+        let started = std::time::Instant::now();
+        let state = ClinicState::for_tests(path.clone());
+        assert!(state.is_ok());
+        assert!(started.elapsed() >= Duration::from_secs(5));
+        lock_holder.join().unwrap();
+        fs::remove_dir_all(path).unwrap();
     }
 
     async fn fixture_gateway() -> (String, tokio::task::JoinHandle<()>) {
