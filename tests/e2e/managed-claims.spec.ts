@@ -74,6 +74,7 @@ test('@claim:single-replica-durable-topology The checked-in Container Apps templ
     { name: 'clinic-backups', storageType: 'AzureFile', storageName: 'clinic-reminder-proof-backups' }
   ]));
   expect(template.containers[0].volumeMounts).toEqual(expect.arrayContaining([
+    { volumeName: 'clinic-data', mountPath: '/data' },
     { volumeName: 'clinic-data', mountPath: '/durable' },
     { volumeName: 'clinic-backups', mountPath: '/backups' }
   ]));

@@ -121,8 +121,8 @@ describe('planning scaffold contracts', () => {
       'It includes rate limits, health checks, and machine-readable metrics.',
       'Each saved change writes a matching durable database and key under `DURABLE_DIR`.',
       'A daily recovery copy is kept under `BACKUP_DIR` for 30 days.',
-      'The container mounts separate durable and backup shares at `/durable` and `/backups`.',
-      'The production image refuses to start when either required share is missing.',
+      'The data share mounts at `/data` and `/durable`; the backup share mounts at `/backups`.',
+      'The production image refuses to start when a required data, recovery, or backup mount is missing.',
       'The application runs without root privileges.'
     ];
     for (const sentence of required) {
@@ -199,6 +199,7 @@ describe('planning scaffold contracts', () => {
       env: [{ name: 'PORT', value: '8080' }],
       resources: { cpu: 0.5, memory: '1Gi' },
       volumeMounts: [
+        { volumeName: 'clinic-data', mountPath: '/data' },
         { volumeName: 'clinic-data', mountPath: '/durable' },
         { volumeName: 'clinic-backups', mountPath: '/backups' }
       ]
@@ -375,6 +376,7 @@ describe('planning scaffold contracts', () => {
         name: 'app',
         image: fullImage,
         volumeMounts: [
+          { volumeName: 'clinic-data', mountPath: '/data' },
           { volumeName: 'clinic-data', mountPath: '/durable' },
           { volumeName: 'clinic-backups', mountPath: '/backups' }
         ]
@@ -416,10 +418,6 @@ describe('planning scaffold contracts', () => {
       /^2001:db8:[0-9a-f]{4}(?::[0-9a-f]{4}){5}$/i.test(client)
     )).toBe(true);
 
-    const rateClaim = await readRepositoryFile('tests/e2e/m1-claims.spec.ts');
-    expect(rateClaim).toContain('const stableClient = createFreshTestClient();');
-    expect(rateClaim).not.toContain('let demoClient =');
-    expect(rateClaim).not.toContain('198.18.${demoClient}');
   });
 
   test('@regression:qa19-01 refuses the exact unsafe selected revision and requires latest-revision convergence', async () => {
@@ -487,6 +485,7 @@ describe('planning scaffold contracts', () => {
         name: 'app',
         image: fullImage,
         volumeMounts: [
+          { volumeName: 'clinic-data', mountPath: '/data' },
           { volumeName: 'clinic-data', mountPath: '/durable' },
           { volumeName: 'clinic-backups', mountPath: '/backups' }
         ]
@@ -575,6 +574,7 @@ describe('planning scaffold contracts', () => {
         env: [{ name: 'PORT', value: '8080' }],
         resources: { cpu: 0.5, memory: '1Gi' },
         volumeMounts: [
+          { volumeName: 'clinic-data', mountPath: '/data' },
           { volumeName: 'clinic-data', mountPath: '/durable' },
           { volumeName: 'clinic-backups', mountPath: '/backups' }
         ]

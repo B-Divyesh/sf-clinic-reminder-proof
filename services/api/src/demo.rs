@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    net::IpAddr,
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -385,13 +386,22 @@ fn resolution_name(code: u8) -> Option<&'static str> {
 
 pub fn client_ip(headers: &HeaderMap) -> String {
     headers
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
+        .get_all("x-forwarded-for")
+        .iter()
+        .rev()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(',').rev())
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("local")
-        .to_owned()
+        // Azure Container Apps appends the socket peer to the right of this
+        // chain. A caller can choose any earlier value, so selecting the
+        // first hop would give one network client unlimited fresh buckets.
+        .find_map(|value| {
+            value
+                .parse::<IpAddr>()
+                .ok()
+                .map(|address| address.to_string())
+        })
+        .unwrap_or_else(|| "local".to_owned())
 }
 
 pub async fn create_workspace(

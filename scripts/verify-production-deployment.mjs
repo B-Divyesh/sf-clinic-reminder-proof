@@ -44,12 +44,14 @@ for (const expected of [
 
 const mounts = template?.containers?.find((container) => container.name === 'app')?.volumeMounts ?? [];
 for (const expected of [
+  { volumeName: 'clinic-data', mountPath: '/data' },
   { volumeName: 'clinic-data', mountPath: '/durable' },
   { volumeName: 'clinic-backups', mountPath: '/backups' }
 ]) {
-  const mount = mounts.find((item) => item.volumeName === expected.volumeName);
-  if (!mount) fail(`missing ${expected.volumeName} mount`);
-  requireEqual(mount.mountPath, expected.mountPath, `${expected.volumeName} mount path`);
+  const mount = mounts.find(
+    (item) => item.volumeName === expected.volumeName && item.mountPath === expected.mountPath
+  );
+  if (!mount) fail(`missing ${expected.volumeName} mount at ${expected.mountPath}`);
 }
 
 const revisions = JSON.parse(azure(['containerapp', 'revision', 'list', '--resource-group', resourceGroup, '--name', appName, '--output', 'json']));
@@ -70,22 +72,23 @@ try {
   fail(error.message);
 }
 
-// This must be fresh for each verification. Demo creation allows five
-// requests per client for one hour, so an address derived from a test worker
-// would make a second clean run fail before it observes the documented limit.
-const clientIp = createFreshTestClient();
+// Vary only caller-controlled prefixes. The ingress must append the physical
+// client address to the end of this chain, and the service must keep that one
+// public client in one bucket. Six fresh buckets here means the public limit
+// still trusts an address the caller chose.
 const rateStatuses = [];
 let retryAfter = null;
 for (let request = 0; request < 6; request += 1) {
+  const callerForwardedPrefix = createFreshTestClient();
   const response = await fetch(`${liveUrl}/api/v1/demo/workspaces`, {
     method: 'POST',
-    headers: { 'x-forwarded-for': `${clientIp}, 203.0.113.${request + 1}` }
+    headers: { 'x-forwarded-for': `${callerForwardedPrefix}, 203.0.113.${request + 1}` }
   });
   rateStatuses.push(response.status);
   if (request === 5) retryAfter = response.headers.get('retry-after');
 }
 if (rateStatuses.slice(0, 5).some((status) => status !== 200)) fail(`first five demo creations returned ${rateStatuses.join(', ')}`);
-requireEqual(rateStatuses[5], 429, `sixth demo creation status for ${clientIp}`);
+requireEqual(rateStatuses[5], 429, 'sixth demo creation status after caller forwarding prefixes changed');
 if (!retryAfter || Number(retryAfter) <= 0) fail(`sixth demo creation Retry-After header was ${JSON.stringify(retryAfter)}`);
 
 console.log(JSON.stringify({

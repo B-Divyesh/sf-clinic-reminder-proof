@@ -6,18 +6,18 @@ for SQLite and the in-process per-client rate limiter. Do not raise
 
 ## Durable mounts
 
-`deployment/containerapp.json` attaches two independent ReadWrite Azure Files
-shares directly to the non-root application process:
+`deployment/containerapp.json` attaches two ReadWrite Azure Files shares
+directly to the non-root application process:
 
-- `clinic-reminder-proof-data` at `/durable` holds a consistent online SQLite
-  snapshot and its generated AES-256 key. SQLite itself runs on local `/data`,
-  avoiding unsupported SMB file locking.
+- `clinic-reminder-proof-data` mounts at `/data` for the active SQLite database
+  and generated AES-256 key. The same share also mounts at `/durable` to retain
+  the matching online recovery snapshot used by the existing restore path.
 - `clinic-reminder-proof-backups` at `/backups` holds the latest consistent
   database backup and matching key.
 
 No init container, `chmod`, root process, or mount preparation is required.
 Startup restores the durable pair before serving and fails closed if the pair
-is incomplete, either mounted location is not writable, or either required
+is incomplete, a required mounted location is not writable, or a required
 Azure Files mount is absent. The container image sets this mount guard itself,
 so deployment drift cannot silently accept clinic records on ephemeral storage.
 Every successful workspace mutation uses SQLite's online backup API while the
@@ -57,7 +57,7 @@ with its full 40-character commit as the tag, then use
 `npm run deploy:container -- --image <registry/image:full-commit>` for every
 Container Apps rollout. The command rejects short and mutable tags. The deploy command reads
 `deployment/containerapp.json` and patches the full revision template, so an
-image update cannot omit the two Azure Files mounts or increase the replica
+image update cannot omit the required Azure Files mounts or increase the replica
 limit. It also rejects dirty or unpublished checkouts. It preserves
 factory-managed ingress, domains, identity, and app-level settings. In
 single-revision mode, it waits for Azure to promote that exact healthy revision
@@ -66,7 +66,7 @@ for the same build identity.
 
 After each rollout, run `EXPECTED_BUILD_SHA=<full-commit> npm run
 verify:deployment` from this repository with Azure access. It fails unless the
-active revision has exactly one replica, both named Azure Files mounts, the
+active revision has exactly one replica, all named Azure Files mounts, the
 exact public health and footer build identity, and a per-client demo creation
 boundary of five successful requests followed by 429 with
 `Retry-After`.

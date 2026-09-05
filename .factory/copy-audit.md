@@ -99,7 +99,7 @@ Headings, inventory statements, and every prose sentence are included. Commands 
 | 2 | Run locally | Pass; heading |
 | 13 | Requirements: Node 22.12+, Rust stable with `rustfmt` and `clippy`, and Chromium for Playwright. | Pass |
 | 10 | The API requires no configuration and uses `PORT` (default `8080`). | Pass |
-| 14 | The single-replica SQLite writer runs below `DATA_DIR` instead of on an SMB mount. | Pass |
+| 10 | The single-replica SQLite writer runs on the durable `/data` mount. | Pass |
 | 16 | M2 adds reversible migrations for accounts, clinics, locations, roles, subscriptions, audit events, preferences, and exports. | Pass; `durable-onboarding` |
 | 12 | Each saved change writes a matching durable database and key under `DURABLE_DIR`. | Pass; F-1-7 |
 | 11 | A daily recovery copy is kept under `BACKUP_DIR` for 30 days. | Pass; F-1-7 |
@@ -110,11 +110,11 @@ Headings, inventory statements, and every prose sentence are included. Commands 
 | 12 | The Clinic, Practice, and Network choices are allowlisted on the server. | Pass; `subscription-price` |
 | 13 | The pilot product must be enabled by a factory operator before checkout can finish. | Pass; honest external dependency |
 | 18 | The production container pins the app to one replica so SQLite and demo-creation limits have one state owner. | Pass |
-| 12 | The container mounts separate durable and backup shares at `/durable` and `/backups`. | Pass; F-1-8 |
+| 13 | The data share mounts at `/data` and `/durable`; the backup share mounts at `/backups`. | Pass; F-1-8 |
 | 6 | The application runs without root privileges. | Pass; F-1-8 |
 | 10 | Recovery steps and the restore regression are documented in `.factory/operations.md`. | Pass |
 | 14 | Register `https://clinic-reminder-proof.sociobot.in/auth/callback` on the shared Sociobot Entra SPA before sign-in is opened to clinics. | Pass |
-| 12 | The production image refuses to start when either required share is missing. | Pass; `single-replica-durable-topology` |
+| 15 | The production image refuses to start when a required data, recovery, or backup mount is missing. | Pass; `single-replica-durable-topology` |
 | 14 | Commit and push the final handoff before running `npm run deploy:container -- --image <registry/image:full-commit>`. | Pass; `@regression:qa17-01` |
 | 9 | The command rejects dirty, unpublished, short-tagged, or mismatched candidates. | Pass; `@regression:qa14-01`, `@regression:qa17-01` |
 | 8 | It reapplies the checked-in mounts and one-replica boundary. | Pass; `single-replica-durable-topology` |

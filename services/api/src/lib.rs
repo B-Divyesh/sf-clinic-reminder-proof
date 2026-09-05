@@ -52,22 +52,13 @@ struct HealthResponse {
 static HTTP_REQUESTS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone)]
-struct TrustedProxyIpExtractor;
+struct IngressClientIpExtractor;
 
-impl KeyExtractor for TrustedProxyIpExtractor {
+impl KeyExtractor for IngressClientIpExtractor {
     type Key = String;
 
     fn extract<T>(&self, request: &axum::http::Request<T>) -> Result<Self::Key, GovernorError> {
-        request
-            .headers()
-            .get("x-forwarded-for")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.split(',').next())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("local")
-            .parse()
-            .map_err(|_| GovernorError::UnableToExtractKey)
+        Ok(crate::demo::client_ip(request.headers()))
     }
 }
 
@@ -87,7 +78,7 @@ fn app_with_clinic_state(
         GovernorConfigBuilder::default()
             .per_millisecond(50)
             .burst_size(40)
-            .key_extractor(TrustedProxyIpExtractor)
+            .key_extractor(IngressClientIpExtractor)
             .use_headers()
             .finish()
             .expect("valid public API rate limit"),
@@ -96,7 +87,7 @@ fn app_with_clinic_state(
         GovernorConfigBuilder::default()
             .per_second(120)
             .burst_size(5)
-            .key_extractor(TrustedProxyIpExtractor)
+            .key_extractor(IngressClientIpExtractor)
             .use_headers()
             .finish()
             .expect("valid billing API rate limit"),
@@ -421,7 +412,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn demo_rate_limit_returns_retry_after_from_x_forwarded_for() {
+    async fn general_limit_uses_the_ingress_appended_forwarded_hop() {
         let application = test_app();
         let mut last = StatusCode::OK;
         for attempt in 0..41 {
@@ -430,7 +421,7 @@ mod tests {
                 .uri("/api/v1/demo/state")
                 .header(
                     "x-forwarded-for",
-                    format!("198.51.100.9, 203.0.113.{attempt}"),
+                    format!("198.51.100.{attempt}, 203.0.113.9"),
                 )
                 .body(Body::empty())
                 .unwrap();
@@ -445,7 +436,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn workspace_allowance_uses_client_first_hop_and_has_retry_after() {
+    async fn changing_a_caller_forwarded_prefix_cannot_create_demo_limit_buckets() {
         let application = test_app();
         for attempt in 0..6 {
             let response = application
@@ -456,7 +447,7 @@ mod tests {
                         .uri("/api/v1/demo/workspaces")
                         .header(
                             "x-forwarded-for",
-                            format!("198.51.100.18, 203.0.113.{attempt}"),
+                            format!("198.51.100.{attempt}, 203.0.113.18"),
                         )
                         .body(Body::empty())
                         .unwrap(),
@@ -482,7 +473,10 @@ mod tests {
                     Request::builder()
                         .method("POST")
                         .uri("/api/v1/billing/checkout")
-                        .header("x-forwarded-for", "198.51.100.219")
+                        .header(
+                            "x-forwarded-for",
+                            format!("198.51.100.{attempt}, 203.0.113.219"),
+                        )
                         .header(header::CONTENT_TYPE, "application/json")
                         .body(Body::from(r#"{"tier":"clinic"}"#))
                         .unwrap(),

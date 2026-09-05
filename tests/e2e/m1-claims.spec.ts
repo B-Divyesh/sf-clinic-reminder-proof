@@ -258,12 +258,12 @@ test('@claim:request-protection JSON API writes enforce content type and 16 KB b
   expect(new Set(requestIds).size).toBe(requestIds.length);
 });
 
-test('@claim:rate-limit-policy Demo creation is limited by the ingress client address and returns Retry-After.', async ({ page }) => {
-  const stableClient = createFreshTestClient();
+test('@claim:rate-limit-policy Demo creation ignores caller-controlled forwarded prefixes and returns Retry-After.', async ({ page }) => {
+  const ingressClient = createFreshTestClient();
   const responses: import('@playwright/test').APIResponse[] = [];
   for (let request = 0; request < 6; request += 1) {
     responses.push(await page.request.post('/api/v1/demo/workspaces', {
-      headers: { 'x-forwarded-for': `${stableClient}, 203.0.113.${request}` }
+      headers: { 'x-forwarded-for': `198.51.100.${request}, ${ingressClient}` }
     }));
   }
   expect(responses.slice(0, 5).map((response) => response.status())).toEqual([200, 200, 200, 200, 200]);
@@ -273,10 +273,10 @@ test('@claim:rate-limit-policy Demo creation is limited by the ingress client ad
 });
 
 test('one deployed rate-limit owner rejects concurrent demo creates after five and protects clinic routes', async ({ page }) => {
-  const stableClient = createFreshTestClient();
+  const ingressClient = createFreshTestClient();
   const creates = await Promise.all(Array.from({ length: 18 }, (_, request) =>
     page.request.post('/api/v1/demo/workspaces', {
-      headers: { 'x-forwarded-for': `${stableClient}, 203.0.113.${request}` }
+      headers: { 'x-forwarded-for': `198.51.100.${request}, ${ingressClient}` }
     })
   ));
   expect(creates.filter((response) => response.status() === 200)).toHaveLength(5);
@@ -284,10 +284,10 @@ test('one deployed rate-limit owner rejects concurrent demo creates after five a
   expect(rejectedCreates).toHaveLength(13);
   expect(rejectedCreates.every((response) => Number(response.headers()['retry-after']) > 0)).toBe(true);
 
-  const protectedClient = createFreshTestClient();
+  const protectedIngressClient = createFreshTestClient();
   const billing = await Promise.all(Array.from({ length: 60 }, (_, request) =>
     page.request.post('/api/v1/billing/checkout', {
-      headers: { 'x-forwarded-for': `${protectedClient}, 203.0.113.${request}` },
+      headers: { 'x-forwarded-for': `198.51.100.${request}, ${protectedIngressClient}` },
       data: { tier: 'clinic' }
     })
   ));

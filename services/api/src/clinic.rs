@@ -473,7 +473,7 @@ impl ClinicState {
                     dir.join("backups")
                 }
             });
-        ensure_required_storage_mounts(&durable, &backups)?;
+        ensure_required_storage_mounts(&[dir.as_path(), durable.as_path(), backups.as_path()])?;
         Self::new(dir, durable, backups, AuthService::from_env(), None, None)
     }
 
@@ -578,14 +578,14 @@ fn data_dir() -> PathBuf {
 /// portable directories below `DATA_DIR`. A missing Azure Files mount must
 /// make a production revision unhealthy instead of accepting clinic records
 /// on ephemeral container storage.
-fn ensure_required_storage_mounts(durable: &Path, backups: &Path) -> Result<(), String> {
+fn ensure_required_storage_mounts(paths: &[&Path]) -> Result<(), String> {
     if env::var("REQUIRE_DURABLE_MOUNTS").ok().as_deref() != Some("1") {
         return Ok(());
     }
 
     let mount_info = fs::read_to_string("/proc/self/mountinfo")
         .map_err(|error| format!("read container mount information: {error}"))?;
-    let missing = missing_required_mounts(&mount_info, &[durable, backups]);
+    let missing = missing_required_mounts(&mount_info, paths);
     if missing.is_empty() {
         Ok(())
     } else {
@@ -2936,18 +2936,26 @@ mod tests {
     use tower::ServiceExt;
 
     #[test]
-    fn production_storage_guard_requires_both_azure_file_mounts() {
-        let mount_info = "31 22 0:29 / / rw,relatime - overlay overlay rw\n42 31 0:61 / /durable rw,relatime - cifs //storage/data rw\n43 31 0:62 / /backups rw,relatime - cifs //storage/backups rw\n";
+    fn production_storage_guard_requires_data_durable_and_backup_azure_file_mounts() {
+        let mount_info = "31 22 0:29 / / rw,relatime - overlay overlay rw\n41 31 0:60 / /data rw,relatime - cifs //storage/data rw\n42 31 0:61 / /durable rw,relatime - cifs //storage/data rw\n43 31 0:62 / /backups rw,relatime - cifs //storage/backups rw\n";
         assert!(missing_required_mounts(
             mount_info,
-            &[Path::new("/durable"), Path::new("/backups")]
+            &[
+                Path::new("/data"),
+                Path::new("/durable"),
+                Path::new("/backups"),
+            ]
         )
         .is_empty());
 
         assert_eq!(
             missing_required_mounts(
-                "31 22 0:29 / / rw,relatime - overlay overlay rw\n42 31 0:61 / /durable rw,relatime - cifs //storage/data rw\n",
-                &[Path::new("/durable"), Path::new("/backups")]
+                "31 22 0:29 / / rw,relatime - overlay overlay rw\n41 31 0:60 / /data rw,relatime - cifs //storage/data rw\n42 31 0:61 / /durable rw,relatime - cifs //storage/data rw\n",
+                &[
+                    Path::new("/data"),
+                    Path::new("/durable"),
+                    Path::new("/backups"),
+                ]
             ),
             vec!["/backups"]
         );

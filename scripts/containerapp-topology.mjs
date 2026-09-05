@@ -30,11 +30,14 @@ export function validateTopology(document) {
   const app = template.containers?.find((container) => container.name === 'app');
   if (!app) throw new Error('deployment topology must configure the app container');
   for (const expected of [
+    { volumeName: 'clinic-data', mountPath: '/data' },
     { volumeName: 'clinic-data', mountPath: '/durable' },
     { volumeName: 'clinic-backups', mountPath: '/backups' }
   ]) {
-    const mount = app.volumeMounts?.find((item) => item.volumeName === expected.volumeName);
-    if (!mount || mount.mountPath !== expected.mountPath) {
+    const mount = app.volumeMounts?.find(
+      (item) => item.volumeName === expected.volumeName && item.mountPath === expected.mountPath
+    );
+    if (!mount) {
       throw new Error(`deployment topology must mount ${expected.volumeName} at ${expected.mountPath}`);
     }
   }
