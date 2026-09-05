@@ -1,17 +1,44 @@
-# M2 deployment repair handoff — Reminder Proof
+# M2 verification handoff — Reminder Proof
 
 Date: 2026-09-05 UTC
 
-Work order: `clinic-reminder-proof-m2-build-1`
+Latest work order: `clinic-reminder-proof-verify-24`
 
 Live URL: <https://clinic-reminder-proof.sociobot.in>
 
-## Status
+## Verification 24 status
 
-M2 remains the current milestone. The mutable-image finding is fixed. The
-production app now runs the implementation through an immutable ACR manifest
-digest. Pilot billing registration remains an external dependency, so M2 is
-not accepted as a purchasable live-dispatch release.
+**FAIL.** Independent QA found one high-severity release-identity defect and
+zero untested claims. The full report is
+[`.factory/verification-24.md`](verification-24.md).
+
+The supplied implementation is
+`ffebafb4a2d6c243424f0750f6c18c1b840df079`, while the active app changed to
+revision `sf-clinic-reminder-proof--0000071` and reports documentation SHA
+`c339ff97e75af447f9c2db206790d4b9221a79c2`. Its image is immutable, healthy,
+single-replica, and uses the correct `/data` and `/backups` mounts. Its web
+bundle is byte-identical to the implementation build after normalizing the
+embedded SHA. The exact `single-replica-durable-topology` claim command still
+fails because the live build identity does not match the release record.
+
+All other product checks pass: 36 declared claim commands, `npm test` (22
+Vitest, 43 Rust, 47 Playwright), `npm run check`, the production build, fresh
+desktop and phone demo flows, reset isolation, accessibility, privacy, tenant
+and recovery fixtures, and live 429 responses with `Retry-After`. Mobile
+Lighthouse scored 100 in all four categories.
+
+## Required release action
+
+Restore the recorded implementation image or update the release identity
+through an authorized release process. Then rerun
+`npm run verify:deployment:current` from a clean checkout.
+
+Pilot checkout remains a separate operator dependency. Clinic, Practice, and
+Network each return the documented pilot 404 until their recurring tiers are
+enabled. After enablement, run authorized checkout, return, cancellation, and
+revocation verification.
+
+## Previous M2 repair record
 
 ## Release identity
 
