@@ -1,46 +1,62 @@
-# Verification handoff — Reminder Proof
+# Repair handoff — Reminder Proof
 
-Date: 2026-08-30 UTC
+Date: 2026-09-05 UTC
 
-Work order: `clinic-reminder-proof-verify-22`
-
-Candidate: `d65c4001e076b07740b265c04165df2008084595`
+Work order: `clinic-reminder-proof-repair-17`
 
 Production URL: <https://clinic-reminder-proof.sociobot.in>
 
 ## Status
 
-**FAIL — do not release.** Public pages and the demo serve the candidate and pass functional, accessibility, privacy, and performance checks. Release is blocked by the failed production topology claim, unavailable paid checkout, and a spoofable per-client rate-limit key.
+**PASS for the repaired deployment topology and public rate boundary.** The current Azure revision is healthy, has all traffic, uses the immutable product image, runs exactly one replica, and has durable data and backup mounts.
 
-## Release blockers
+Implementation SHA: `b58c17feaac9b3ffd9e6fc555036641066cd09ae`
 
-1. Azure revision `sf-clinic-reminder-proof--0000063` is the active 100%-traffic target but is `Unhealthy` / `ActivationFailed`. It uses a short image tag, `maxReplicas: 3`, and no durable or backup mounts. Public traffic falls back to healthy candidate revision `0000062`. `npm run verify:deployment:current` fails.
-2. The exact Sociobot checkout URLs used by the backend return HTTP 500 for Clinic, Practice, and Network on both pilot and production gateway hosts. Because live dispatch requires an active subscription, a new clinic cannot complete the real job.
-3. The nominal allowance is five demo creations per client per hour, then 429 with `Retry-After`. The same network client bypassed it by varying caller-supplied first-hop `X-Forwarded-For`; seven of seven requests returned 200. The general and billing limiters share this trust defect.
+The final documentation commit is recorded separately after this handoff is committed. The deployed implementation SHA remains the value above.
 
-## Verification summary
+## What changed
 
-- Mandatory claims: 36/37 passed; `single-replica-durable-topology` failed on fresh live Azure state.
-- First-read and one-click sample demo: pass at desktop and 390 px.
-- `npm ci`: pass, 87 packages, 0 vulnerabilities.
-- `npm test`: pass, 21 Vitest + 41 Rust + 47 Chromium.
-- `npm run check`: pass, zero Svelte diagnostics, rustfmt and Clippy clean.
-- Exact full-SHA `npm run build`: pass; `dist/` and release binary produced.
-- Complete live browser suite: 47/47 pass.
-- Public build identity: health and footer match the candidate; local/live entry JS SHA-256 matches.
-- Live demo: 4 due → 3 delivered + 1 exception; fallback, assignment, resolution persistence, undo, and reset work.
-- Privacy: 18/18 observed demo-flow requests were same-origin; no console/page/request errors.
-- Accessibility: no serious/critical axe findings; 390 px reflow, 44 px targets, skip focus, visible 3 px focus ring, and reduced motion pass.
-- Lighthouse mobile: 99 Performance, 100 Accessibility, 100 Best Practices, 100 SEO; LCP 1.4 s, TBT 140 ms, CLS 0.001.
-- Default runtime: starts with only `PORT`; 100 concurrent health requests passed.
-- Authentication: actual redirect uses only the shared Sociobot CIAM tenant, correct client/callback, code flow, and PKCE S256.
-- Container build was not run because Docker and Podman are unavailable in the verifier image.
+- Reapplied the complete Container Apps revision template on every rollout: single-revision mode, `minReplicas: 1`, `maxReplicas: 1`, Azure Files data mount at `/data`, and separate Azure Files backup mount at `/backups`.
+- Replaced first-hop `X-Forwarded-For` selection with the final valid hop. The app therefore keys general, demo, and billing rate limits from the ingress-appended client address rather than an address a caller can choose.
+- Added outcome tests that vary caller-controlled forwarding prefixes while retaining a single client bucket.
+- Kept the active SQLite working database on the one permitted container replica and synchronously writes its matching database/key recovery pair to durable `/data` after every saved change. Startup restores that pair before serving; daily recovery copies remain on `/backups` for 30 days. This is the safe SQLite-on-Azure-Files boundary: direct active SQLite access through SMB produced persistent `database is locked` failures during the attempted rollout, while the durable recovery pair is preserved on the required mount.
+- Added a regression which holds a transient SQLite handoff lock for six seconds and proves durable startup waits rather than failing.
 
-## Required next steps
+No Azure Files data, keys, or backups were deleted or overwritten by the repair. Intermediate crash-looping revisions were deactivated before the final rollout.
 
-1. Redeploy the full candidate SHA through the topology-preserving repository command. Require one healthy, full-traffic revision with `minReplicas=maxReplicas=1` and both Azure Files mounts.
-2. Enable all offered recurring tiers in Sociobot billing and complete a real hosted test purchase, return, cancellation, and revocation.
-3. Establish a trusted client-IP boundary at ingress and reject or overwrite caller-supplied forwarding chains; add a live bypass regression.
-4. Rerun every `.factory/claims.json` command, `npm test`, `npm run check`, the exact full-SHA build, the live browser suite, and `npm run verify:deployment:current`.
+## Fresh production evidence
 
-Full evidence: [verification-22.md](verification-22.md).
+- Revision: `sf-clinic-reminder-proof--0000067`
+- Image: `sociobotregistry.azurecr.io/sf-clinic-reminder-proof:b58c17feaac9b3ffd9e6fc555036641066cd09ae`
+- Azure mode: `Single`; selected and ready revision are both `0000067`.
+- Scale: `minReplicas: 1`, `maxReplicas: 1`; one ready running replica, zero restarts.
+- Volumes: `clinic-reminder-proof-data` mounted at `/data`; independent `clinic-reminder-proof-backups` mounted at `/backups`.
+- `npm run verify:deployment:current`: passed. Public `/health` and the footer report the implementation SHA. Six same-client demo creates with changed caller prefixes returned `200, 200, 200, 200, 200, 429`; the final response included `Retry-After: 3599`.
+- Cold HTTPS route checks: `/`, `/privacy`, `/terms`, `/start`, and `/demo/reminders/mina` returned 200; `/does-not-exist` returned the designed HTTP 404.
+- Fresh desktop and 390 px phone landing checks showed the job “See every reminder outcome.”, the independent-clinic audience, and “Try it with sample data” before scrolling. The phone load had no console errors.
+- The desktop demo request immediately after the six-request public allowance probe correctly showed the explicit 429 recovery message. The full sample and reset path is covered by the final local browser suite; do not infer a product defect from this deliberate public rate-limit recovery state.
+
+## Verification run
+
+- `npm ci`: passed; 87 packages, 0 reported vulnerabilities.
+- `npm test`: passed — 21 Vitest, 42 Rust, and 47 Chromium tests.
+- `npm run check`: passed — zero Svelte diagnostics, rustfmt, and Clippy with warnings denied.
+- Exact-SHA `npm run build`: passed; the final front-end entry is 31.82 kB gzip and CSS is 5.79 kB gzip.
+- Default runtime with only `PORT`: final build SHA returned from `/health`; 100 concurrent health requests all returned 200.
+- Full local claim coverage passed through the final browser/API suite. The fresh production topology claim was exercised by the successful `npm run verify:deployment:current` command above so its five-request public rate window was not reused.
+- `/opt/fleet/lib/verify-url.sh` passed against the cold production landing: 200, title, `lang=en`, one h1, main landmark, alt/control checks, and no console errors. Live Playwright axe found 0 violations, including 0 serious/critical issues.
+
+## Known dependency
+
+Sociobot hosted checkout remains an external platform dependency. Verification 22 recorded HTTP 500 from the offered Clinic, Practice, and Network checkout URLs on both pilot and production hosts. This repair did not touch Sociobot configuration, billing, credentials, or checkout as required by the work order. A real paid checkout, return, cancellation, and revocation must be retested once that platform dependency is restored.
+
+## Operations
+
+Use the immutable implementation SHA above for the deployed image. Future rollouts must use:
+
+```sh
+npm run deploy:container -- --image sociobotregistry.azurecr.io/sf-clinic-reminder-proof:<full-commit>
+npm run verify:deployment:current
+```
+
+The deployment command composes the checked-in durable topology into the revision template and rejects short or unpublished image tags. Do not mount the active SQLite database directly through Azure Files; retain the one-replica working copy plus synchronous `/data` recovery pair described in `.factory/operations.md`.
